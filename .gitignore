@@ -4,3 +4,8 @@ target
 .settings
 .idea
 *.iml
+
+core/nb-configuration.xml
+core/nbactions.xml
+tools/dependency-reduced-pom.xml
+
