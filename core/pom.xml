@@ -22,7 +22,7 @@
     <parent>
         <groupId>com.google</groupId>
         <artifactId>bitcoinj-parent</artifactId>
-        <version>0.11.2-MB-ALICE</version>
+        <version>0.1-CS-0.11.2-MB-ALICE</version>
     </parent>
 
     <artifactId>bitcoinj</artifactId>
@@ -244,7 +244,7 @@
             <artifactId>scrypt</artifactId>
             <version>1.3.3</version>
         </dependency>
-
+        
         <!-- Add in to test/use Postgres blockstore -->
         <!--
         <dependency>
@@ -253,6 +253,12 @@
           <version>9.1-901.jdbc4</version>
         </dependency>
         -->
+        <dependency>
+            <groupId>org.coinspark.library</groupId>
+            <artifactId>coinspark-library</artifactId>
+            <version>1.0-SNAPSHOT</version>
+            <type>jar</type>
+        </dependency>
     </dependencies>
 
 </project>

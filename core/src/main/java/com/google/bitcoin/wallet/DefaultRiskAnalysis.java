@@ -22,13 +22,12 @@ import com.google.bitcoin.core.Transaction;
 import com.google.bitcoin.core.TransactionConfidence;
 import com.google.bitcoin.core.TransactionOutput;
 import com.google.bitcoin.core.Wallet;
-
-import javax.annotation.Nullable;
-
+import static com.google.common.base.Preconditions.checkState;
 import java.math.BigInteger;
 import java.util.List;
-
-import static com.google.common.base.Preconditions.checkState;
+import javax.annotation.Nullable;
+import org.coinspark.protocol.CoinSparkBase;
+import org.coinspark.wallet.CSTransactionAssets;
 
 /**
  * The default risk analysis. Currently, it only is concerned with whether a tx/dependency is non-final or not. Outside
@@ -121,10 +120,27 @@ public class DefaultRiskAnalysis implements RiskAnalysis {
         if (tx.getVersion() > 1 || tx.getVersion() < 1)
             return tx;
 
+/* CSPK-mike START */               
+/* Bitcoin 0.9 allows zero values for non-standard outputs */
+/*        
         for (TransactionOutput output : tx.getOutputs()) {
             if (MIN_ANALYSIS_NONDUST_OUTPUT.compareTo(output.getValue()) > 0)
-                return tx;
+                    return tx;
+ */
+
+        boolean txNonStandard=false;
+        for (TransactionOutput output : tx.getOutputs()) {
+            if (MIN_ANALYSIS_NONDUST_OUTPUT.compareTo(output.getValue()) > 0)
+            {
+                byte[] scriptBytes = output.getScriptBytes();
+
+                if(CoinSparkBase.scriptIsRegular(scriptBytes))                  // Zero value is allowed by Bitcoin 0.9 for OP_RETRUN outputs
+                {
+                    return tx;
+                }
+            }
         }
+/* CSPK-mike START */                        
 
         return null;
     }

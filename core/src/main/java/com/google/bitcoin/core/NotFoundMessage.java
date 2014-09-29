@@ -24,7 +24,7 @@ import java.util.List;
  * as an inventory message and lists the hashes of the missing items.
  */
 public class NotFoundMessage extends InventoryMessage {
-    public static int MIN_PROTOCOL_VERSION = 70001;
+    public static int MIN_PROTOCOL_VERSION = 70002;//70001;
 
     public NotFoundMessage(NetworkParameters params) {
         super(params);

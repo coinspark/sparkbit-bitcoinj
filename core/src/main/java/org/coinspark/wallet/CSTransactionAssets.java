@@ -1,0 +1,332 @@
+/* 
+ * SparkBit's Bitcoinj
+ *
+ * Copyright 2014 Coin Sciences Ltd.
+ *
+ * Permission is hereby granted, free of charge, to any person obtaining a copy
+ * of this software and associated documentation files (the "Software"), to deal
+ * in the Software without restriction, including without limitation the rights
+ * to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+ * copies of the Software, and to permit persons to whom the Software is
+ * furnished to do so, subject to the following conditions:
+ *
+ * The above copyright notice and this permission notice shall be included in
+ * all copies or substantial portions of the Software.
+ *
+ * THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+ * IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+ * FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+ * AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+ * LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+ * OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+ * THE SOFTWARE.
+ */
+package org.coinspark.wallet;
+
+import com.google.bitcoin.core.Sha256Hash;
+import com.google.bitcoin.core.Transaction;
+import com.google.bitcoin.core.TransactionInput;
+import com.google.bitcoin.core.TransactionOutput;
+import com.google.bitcoin.core.Wallet;
+import java.math.BigInteger;
+import java.util.ArrayList;
+import java.util.Arrays;
+import java.util.HashMap;
+import java.util.Map;
+import org.coinspark.protocol.CoinSparkAssetRef;
+import org.coinspark.protocol.CoinSparkBase;
+import org.coinspark.protocol.CoinSparkGenesis;
+import org.coinspark.protocol.CoinSparkTransfer;
+import org.coinspark.protocol.CoinSparkTransferList;
+
+public class CSTransactionAssets {
+    
+    private CoinSparkGenesis genesis = null;
+    private CoinSparkTransferList transfers = null;
+    private Transaction parentTransaction;
+
+    public CSTransactionAssets()
+    {
+        parentTransaction=null;
+    }
+    
+    public CSTransactionAssets(Transaction ParentTx)
+    {
+        this.parentTransaction = ParentTx;
+        
+        byte [] txnMetaData = null;
+        for (TransactionOutput output : ParentTx.getOutputs())
+        {
+            byte[] scriptBytes = output.getScriptBytes();
+
+            if(!CoinSparkBase.scriptIsRegular(scriptBytes))
+            {
+                txnMetaData=CoinSparkBase.scriptToMetadata(scriptBytes);
+            }
+        }
+
+        if(txnMetaData != null)
+        {
+            genesis = new CoinSparkGenesis();
+            if (!genesis.decode(txnMetaData))
+            {
+                genesis=null;
+            }
+
+            transfers = new CoinSparkTransferList();
+            if (!transfers.decode(txnMetaData, ParentTx.getInputs().size(), ParentTx.getOutputs().size()))
+            {
+                transfers=null;
+            }
+        }
+        
+    }
+    
+    public CoinSparkGenesis getGenesis()
+    {
+        return genesis;
+    }
+    
+    public CoinSparkTransferList getTransfers()
+    {
+        return transfers;
+    }
+    
+    
+    public boolean updateAssetBalances(Wallet wallet,int Block,Map<Integer, long []> inputBalances)
+    {
+        CSAssetDatabase assetDB=wallet.CS.getAssetDB();
+        CSBalanceDatabase balanceDB=wallet.CS.getBalanceDB();
+        
+        if(assetDB == null)
+        {
+            return false;
+        }
+        
+        if(balanceDB == null)
+        {
+            return false;
+        }
+
+        boolean [] defaultOutputs;
+        
+        int output_id=0;
+        int countOutputs=parentTransaction.getOutputs().size();
+        int countInputs=parentTransaction.getInputs().size();
+                
+        ArrayList <Map <Integer,BigInteger>> outputBalanceMap = new ArrayList <Map <Integer,BigInteger>>();
+        for(output_id=0;output_id<countOutputs;output_id++)
+        {
+            Map <Integer,BigInteger> map=new HashMap <Integer,BigInteger>();
+            map.put(0,parentTransaction.getOutput(output_id).getValue());
+            outputBalanceMap.add(map);
+        }
+        
+        if(genesis != null)
+        {
+            boolean [] outputsRegular=new boolean[countOutputs];
+            output_id=0;
+            for (TransactionOutput output : parentTransaction.getOutputs())
+            {
+                outputsRegular[output_id] = CoinSparkBase.scriptIsRegular(output.getScriptBytes());
+                output_id++;
+            }
+            long [] outputBalances;
+            outputBalances=genesis.apply(outputsRegular);
+            for(output_id=0;output_id<countOutputs;output_id++)
+            {
+                outputBalanceMap.get(output_id).put(-1,BigInteger.valueOf(outputBalances[output_id]));
+            }                                                
+        }
+        
+        if(transfers != null)
+        {
+            boolean [] outputsRegular=new boolean[countOutputs];
+            output_id=0;
+            for (TransactionOutput output : parentTransaction.getOutputs())
+            {
+                outputsRegular[output_id] = CoinSparkBase.scriptIsRegular(output.getScriptBytes());
+                output_id++;
+            }
+            defaultOutputs=transfers.defaultOutputs(countInputs, outputsRegular);
+            if(inputBalances != null)
+            {
+                if(inputBalances.containsKey(0))
+                {
+                    long totalInput=0;
+                    long totalOutput=0;
+                    long [] outputsSatoshis=new long [countOutputs];
+                    for(int input_id=0;input_id<parentTransaction.getInputs().size();input_id++)
+                    {
+                        totalInput+=inputBalances.get(0)[input_id];
+                    }
+                    for(output_id=0;output_id<countOutputs;output_id++)
+                    {
+                        long value=parentTransaction.getOutput(output_id).getValue().longValue();
+                        outputsSatoshis[output_id]=value;
+                        totalOutput+=value;
+                    }
+                    long validFeeSatoshis=transfers.calcMinFee(countInputs, outputsSatoshis, outputsRegular);
+                    long feeSatoshis=totalInput-totalOutput;
+                    for (Map.Entry<Integer, long []> entry : inputBalances.entrySet())                         
+                    {
+                        int assetID=entry.getKey();
+                        CoinSparkAssetRef assetRef=null;
+                        CSAsset asset=assetDB.getAsset(assetID);
+                        if(assetID != 0)
+                        {
+                            if(asset != null && asset.getGenesis() != null)
+                            {
+                                assetRef=asset.getAssetReference();
+                                if(assetRef != null)
+                                {
+                                    long [] outputBalances;
+                                    if(feeSatoshis >= validFeeSatoshis)
+                                    {
+                                        outputBalances=transfers.apply(assetRef, asset.getGenesis(), entry.getValue(),outputsRegular);
+                                    }
+                                    else
+                                    {
+                                        outputBalances=transfers.applyNone(assetRef, asset.getGenesis(), entry.getValue(), outputsRegular);
+                                    }
+                                    for(output_id=0;output_id<countOutputs;output_id++)
+                                    {
+                                        outputBalanceMap.get(output_id).put(assetID,BigInteger.valueOf(outputBalances[output_id]));
+                                    }                                    
+                                }
+                            }
+                        }
+                    }        
+                    
+                }
+            }
+        }
+        else
+        {
+            defaultOutputs=new boolean[countOutputs];
+            for(output_id=0;output_id<countOutputs-1;output_id++)
+            {
+                defaultOutputs[output_id]=false;
+            }
+            defaultOutputs[countOutputs-1]=true;
+        }
+        
+        Sha256Hash hash=parentTransaction.getHash();
+        
+        CSAsset found=null;
+        
+        output_id=0;
+        for (TransactionOutput output : parentTransaction.getOutputs())
+        {
+            if(output.isMine(wallet))
+            {
+                if(genesis != null)
+                {
+                    if(found == null)
+                    {
+                        CSAsset asset=new CSAsset(hash.toString(), genesis,Block);
+                        TransactionInput firstInput=parentTransaction.getInput(0);
+                        if(firstInput != null)
+                        {            
+                            asset.setFirstSpentInput(firstInput.getOutpoint().getHash().toString(),firstInput.getOutpoint().getIndex());
+                        }
+
+                        found=assetDB.findAsset(asset);
+                        if(found == null)
+                        {
+                            found=assetDB.insertAsset(asset);
+                            if(found == null)
+                            {
+                                return false;
+                            }
+                        }            
+                        else
+                        {
+                            if(Block>0)
+                            {
+                                CoinSparkAssetRef assetRef = new CoinSparkAssetRef();
+                                assetRef.setBlockNum(Block);
+                                assetRef.setTxOffset(0);
+                                assetRef.setTxIDPrefix(Arrays.copyOf(hash.getBytes(),CoinSparkAssetRef.COINSPARK_ASSETREF_TXID_PREFIX_LEN));
+
+                                if(!assetDB.setAssetReference(found,assetRef))
+                                {
+                                    return false;
+                                }
+                            }
+                        }                            
+                    }
+                    if(!defaultOutputs[output_id])
+                    {
+                        Map <Integer,BigInteger> map=outputBalanceMap.get(output_id);
+/*                        
+                        if(!map.containsKey(found.getAssetID()))
+                        {
+                            if(map.containsKey(-1))
+                            {
+                                map.put(found.getAssetID(), BigInteger.valueOf((-1)*map.get(-1).longValue()));
+                            }
+                        }
+*/        
+                        balanceDB.insertTxOut(new CSTransactionOutput(hash, output_id),  new int [] {found.getAssetID()},outputBalanceMap.get(output_id));
+                    }
+                }
+                
+                if(defaultOutputs[output_id]) 
+                {
+                    balanceDB.insertTxOut(new CSTransactionOutput(hash, output_id), null,outputBalanceMap.get(output_id));                    
+                }
+                else
+                {
+                    if(transfers != null)
+                    {
+                        Map <Integer,BigInteger> map=outputBalanceMap.get(output_id);
+                        int [] assetIDs=new int[transfers.count()];
+                        int size=0;
+                        for(int i=0;i<transfers.count();i++)
+                        {
+                            CoinSparkTransfer transfer=transfers.getTransfer(i);
+                            if(transfer != null)
+                            {
+                                int first=transfer.getOutputs().first;
+                                int count=transfer.getOutputs().count;
+                                if(first<=output_id)
+                                {
+                                    if(output_id<first+count)
+                                    {
+                                        CSAsset asset=new CSAsset(transfer.getAssetRef(), CSAsset.CSAssetSource.TRANSFER);
+                                        found=assetDB.findAsset(asset);
+                                        if(found == null)
+                                        {
+                                            found=assetDB.insertAsset(asset);
+                                            if(found == null)
+                                            {
+                                                return false;
+                                            }
+                                            balanceDB.insertAsset(found.getAssetID());
+                                        }            
+                                        assetIDs[size]=found.getAssetID();
+                                        if(!map.containsKey(found.getAssetID()))
+                                        {
+                                            map.put(found.getAssetID(), BigInteger.valueOf((-1)*transfer.getQtyPerOutput()));
+                                        }
+                                        size++;
+                                    }                            
+                                }
+                            }
+                        }
+                        if(size>0)
+                        {
+                            balanceDB.insertTxOut(new CSTransactionOutput(hash, output_id),  assetIDs,outputBalanceMap.get(output_id));                            
+                        }
+                    }
+                }
+            }
+            output_id++;
+        }        
+        
+        return true;
+    }
+    
+    
+}

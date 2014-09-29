@@ -31,7 +31,6 @@ import java.util.List;
 public class BlockChain extends AbstractBlockChain {
     /** Keeps a map of block hashes to StoredBlocks. */
     protected final BlockStore blockStore;
-
     /**
      * <p>Constructs a BlockChain connected to the given wallet and store. To obtain a {@link Wallet} you can construct
      * one from scratch, or you can deserialize a saved wallet from disk using {@link Wallet#loadFromFile(java.io.File)}
@@ -62,6 +61,9 @@ public class BlockChain extends AbstractBlockChain {
                       BlockStore blockStore) throws BlockStoreException {
         super(params, wallets, blockStore);
         this.blockStore = blockStore;
+/* CSPK-mike START */            
+        this.headerStore = null;
+/* CSPK-mike END */            
     }
 
     @Override
@@ -80,6 +82,7 @@ public class BlockChain extends AbstractBlockChain {
         return newBlock;
     }
 
+    
     @Override
     protected boolean shouldVerifyTransactions() {
         return false;
@@ -126,4 +129,6 @@ public class BlockChain extends AbstractBlockChain {
         }
         return success;
     }
+
+	    
 }

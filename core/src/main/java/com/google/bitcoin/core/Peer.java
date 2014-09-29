@@ -544,8 +544,12 @@ public class Peer extends PeerSocketHandler {
         lock.lock();
         try {
             log.debug("{}: Received tx {}", getAddress(), tx.getHashAsString());
+            log.info("!!!! processTransaction START " + tx.getHashAsString());
+            log.info("!!!! processTransaction ADDRESS " + this.toString());
+            log.info("!!!! processTransaction WALLETS: " + wallets.size());
             if (memoryPool != null) {
                 // We may get back a different transaction object.
+            log.info("!!!! processTransaction IN MEMORY POOL " + tx.getHashAsString());
                 tx = memoryPool.seen(tx, getAddress());
             }
             fTx = tx;
@@ -553,10 +557,13 @@ public class Peer extends PeerSocketHandler {
             // etc). This helps the wallet decide how to risk analyze it later.
             fTx.getConfidence().setSource(TransactionConfidence.Source.NETWORK);
             if (maybeHandleRequestedData(fTx)) {
+            log.info("!!!! processTransaction HANDLED REQUEST " + tx.getHashAsString());
                 return;
             }
             if (currentFilteredBlock != null) {
+            log.info("!!!! processTransaction FILTERED BLOCK FOUND " + tx.getHashAsString());
                 if (!currentFilteredBlock.provideTransaction(tx)) {
+            log.info("!!!! processTransaction IN FILTERED BLOCK " + tx.getHashAsString());
                     // Got a tx that didn't fit into the filtered block, so we must have received everything.
                     endFilteredBlock(currentFilteredBlock);
                     currentFilteredBlock = null;
@@ -568,7 +575,9 @@ public class Peer extends PeerSocketHandler {
             // It's a broadcast transaction. Tell all wallets about this tx so they can check if it's relevant or not.
             for (final Wallet wallet : wallets) {
                 try {
+            log.info("!!!! processTransaction CHECKING WALLET " + fTx.getHashAsString());
                     if (wallet.isPendingTransactionRelevant(fTx)) {
+            log.info("!!!! processTransaction IS RELEVANT FOR WALLET " + fTx.getHashAsString());
                         // This transaction seems interesting to us, so let's download its dependencies. This has several
                         // purposes: we can check that the sender isn't attacking us by engaging in protocol abuse games,
                         // like depending on a time-locked transaction that will never confirm, or building huge chains
@@ -577,16 +586,28 @@ public class Peer extends PeerSocketHandler {
                         // wallet so we always have enough data to re-announce to the network and get the payment into
                         // the chain, in case the sender goes away and the network starts to forget.
                         // TODO: Not all the above things are implemented.
-
+            
+/* CSPK-mike START */           
+                        if(wallet.CS.isReplayToRecentSend(fTx))
+                        {
+            log.info("!!!! processTransaction REPLAY TO RECENT SEND " + fTx.getHashAsString());
+                            wallet.receivePending(fTx, null);                            
+                        }
+                        else
+                        {
+/* CSPK-mike END */           
+                            
                         Futures.addCallback(downloadDependencies(fTx), new FutureCallback<List<Transaction>>() {
                             public void onSuccess(List<Transaction> dependencies) {
                                 try {
                                     log.info("{}: Dependency download complete!", getAddress());
+            log.info("!!!! processTransaction DEP DOWNLOADED " + fTx.getHashAsString());
                                     wallet.receivePending(fTx, dependencies);
                                 } catch (VerificationException e) {
                                     log.error("{}: Wallet failed to process pending transaction {}",
                                             getAddress(), fTx.getHashAsString());
                                     log.error("Error was: ", e);
+            log.info("!!!! processTransaction DEP ERROR1 " + fTx.getHashAsString());
                                     // Not much more we can do at this point.
                                 }
                             }
@@ -594,9 +615,14 @@ public class Peer extends PeerSocketHandler {
                             public void onFailure(Throwable throwable) {
                                 log.error("Could not download dependencies of tx {}", fTx.getHashAsString());
                                 log.error("Error was: ", throwable);
+            log.info("!!!! processTransaction DEP ERROR2 " + fTx.getHashAsString());
                                 // Not much more we can do at this point.
                             }
                         });
+                        
+/* CSPK-mike START */           
+                        }
+/* CSPK-mike END */           
                     } else {
                         // The transaction might be a pending transaction we already have.
                         Transaction poolTx = memoryPool.get(tx.getHash());
@@ -616,6 +642,7 @@ public class Peer extends PeerSocketHandler {
         } finally {
             lock.unlock();
         }
+            log.info("!!!! processTransaction LISTENER CALLS " + tx.getHashAsString());
         // Tell all listeners about this tx so they can decide whether to keep it or not. If no listener keeps a
         // reference around then the memory pool will forget about it after a while too because it uses weak references.
         for (final ListenerRegistration<PeerEventListener> registration : eventListeners) {
@@ -626,6 +653,7 @@ public class Peer extends PeerSocketHandler {
                 }
             });
         }
+            log.info("!!!! processTransaction EXIT " + tx.getHashAsString());
     }
 
     /**
@@ -951,6 +979,8 @@ public class Peer extends PeerSocketHandler {
         for (InventoryItem item : items) {
             switch (item.type) {
                 case Transaction:
+                    log.info("!!!! inventory TRANSACTION " + item.hash.toString());
+                    
                     transactions.add(item);
                     break;
                 case Block:
@@ -999,6 +1029,7 @@ public class Peer extends PeerSocketHandler {
                     it.remove();
                 } else {
                     log.debug("{}: getdata on tx {}", getAddress(), item.hash);
+                    log.info("!!!! inventory ADD TO GETDATA " + item.hash.toString());
                     getdata.addItem(item);
                 }
                 // This can trigger transaction confidence listeners.
@@ -1140,6 +1171,7 @@ public class Peer extends PeerSocketHandler {
      * independently, otherwise the wallet will receive duplicate notifications.
      */
     public void addWallet(Wallet wallet) {
+        log.info("!!!! Peer.addWallet ADDRESS " + this.toString());        
         wallets.add(wallet);
     }
 

@@ -216,7 +216,7 @@ public class TransactionOutput extends ChildMessage implements Serializable, IsM
      * {@link Transaction#MIN_NONDUST_OUTPUT}.
      */
     public BigInteger getMinNonDustValue() {
-        return getMinNonDustValue(Transaction.REFERENCE_DEFAULT_MIN_TX_FEE.multiply(BigInteger.valueOf(3)));
+        return getMinNonDustValue(Transaction.REFERENCE_DEFAULT_MIN_RELAY_TX_FEE.multiply(BigInteger.valueOf(3)));// CSPK-MIKE Was Transaction.REFERENCE_DEFAULT_MIN_TX_FEE before
     }
 
     /**
@@ -333,4 +333,5 @@ public class TransactionOutput extends ChildMessage implements Serializable, IsM
         maybeParse();
         out.defaultWriteObject();
     }
+
 }

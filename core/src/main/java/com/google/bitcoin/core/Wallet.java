@@ -61,7 +61,24 @@ import java.util.concurrent.locks.ReentrantLock;
 
 import static com.google.bitcoin.core.Utils.bitcoinValueToFriendlyString;
 import static com.google.bitcoin.core.Utils.bitcoinValueToPlainString;
+import com.google.bitcoin.script.ScriptOpCodes;
 import static com.google.common.base.Preconditions.*;
+import java.util.logging.FileHandler;
+import java.util.logging.Handler;
+import java.util.logging.Level;
+import org.coinspark.core.CSLogger;
+import org.coinspark.core.CSUtils;
+import org.coinspark.protocol.CoinSparkBase;
+import org.coinspark.protocol.CoinSparkIORange;
+import org.coinspark.protocol.CoinSparkTransfer;
+import org.coinspark.protocol.CoinSparkTransferList;
+import org.coinspark.wallet.CSAsset;
+import org.coinspark.wallet.CSAssetDatabase;
+import org.coinspark.wallet.CSBalance;
+import org.coinspark.wallet.CSBalanceDatabase;
+import org.coinspark.wallet.CSTransactionAssets;
+import org.coinspark.wallet.CSTransactionOutput;
+import org.jboss.netty.logging.Log4JLoggerFactory;
 
 // To do list:
 //
@@ -215,6 +232,11 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
         transactions = new HashMap<Sha256Hash, Transaction>();
         eventListeners = new CopyOnWriteArrayList<ListenerRegistration<WalletEventListener>>();
         extensions = new HashMap<String, WalletExtension>();
+
+/* CSPK-mike START */         
+        // CoinSpark object initialization.
+        CS = new CoinSpark(this);                                               
+/* CSPK-mike END */         
         
         if (keyCrypter != null) {
             // If the wallet is encrypted, add a wallet protect extension.
@@ -718,11 +740,13 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
         try {
             // Ignore it if we already know about this transaction. Receiving a pending transaction never moves it
             // between pools.
+            log.info("!!!! isPendingTransactionRelevant START " + tx.getHashAsString());
             EnumSet<Pool> containingPools = getContainingPools(tx);
             if (!containingPools.equals(EnumSet.noneOf(Pool.class))) {
                 log.debug("Received tx we already saw in a block or created ourselves: " + tx.getHashAsString());
                 return false;
             }
+            log.info("!!!! isPendingTransactionRelevant NOT IN POOLS " + tx.getHashAsString());
 
             // We only care about transactions that:
             //   - Send us coins
@@ -730,6 +754,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
             if (!isTransactionRelevant(tx)) {
                 return false;
             }
+            log.info("!!!! isPendingTransactionRelevant IS RELEVANT " + tx.getHashAsString());
 
             if (isTransactionRisky(tx, null) && !acceptRiskyTransactions) {
                 log.warn("Received transaction {} with a lock time of {}, but not configured to accept these, discarding",
@@ -737,6 +762,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
                 return false;
             }
             log.debug("Saw relevant pending transaction " + tx.toString());
+            log.info("!!!! isPendingTransactionRelevant NOT RISKY " + tx.getHashAsString());
 
             return true;
         } finally {
@@ -817,6 +843,19 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
                                  BlockChain.NewBlockType blockType,
                                  int relativityOffset) throws VerificationException {
         lock.lock();
+        
+        CS.log.info("NEWTX: " + "BLOCK " + " " + tx.getHash().toString() + " " + block.getHeight() + " " + tx.getOutputs().size());
+        for(TransactionInput input : tx.getInputs())
+        {
+            CS.log.info("NEWTX: " + "INPUT " + " " + input.getOutpoint().getHash().toString() + " " + input.getOutpoint().getIndex());            
+        }
+        for(TransactionOutput output : tx.getOutputs())
+        {
+            String mine=output.isMine(this) ? "MINE" : " ";
+            CS.log.info("NEWTX: " + "OUTPUT" + " " + tx.getHash().toString() + " " + output.getIndex() + " " + mine);            
+        }
+        
+            
         try {
             receive(tx, block, blockType, relativityOffset);
         } finally {
@@ -842,10 +881,30 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
         BigInteger valueSentToMe = tx.getValueSentToMe(this);
         BigInteger valueDifference = valueSentToMe.subtract(valueSentFromMe);
 
+            log.info("!!!! receive START " + tx.getHashAsString());
+        
         log.info("Received tx{} for {} BTC: {} [{}] in block {}", sideChain ? " on a side chain" : "",
                 bitcoinValueToFriendlyString(valueDifference), tx.getHashAsString(), relativityOffset,
                 block != null ? block.getHeader().getHash() : "(unit test)");
 
+/* CSPK-mike START */
+        // Looking for CoinSpark assets in the transaction
+        if(bestChain)
+        {
+            
+            int blockHeight=0;
+            if(block != null)
+            {
+                blockHeight=block.getHeight();
+                CS.log.info("New tx " + tx.getHash().toString() + " in block " + blockHeight);
+            }
+            log.info("!!!! receive HIT!!! " + tx.getHashAsString());
+            
+            CSTransactionAssets txAssets=new CSTransactionAssets(tx);
+            txAssets.updateAssetBalances(this,blockHeight,CS.getInputAssetBalances(tx));            
+        }
+/* CSPK-mike END */
+        
         // If the transaction is being replayed no need to add it to the wallet again.
         Transaction diagnosticTx = tx;
         if (spent.containsKey(txHash)) {
@@ -903,6 +962,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
                     if (spentBy != null) spentBy.disconnect();
                 }
             }
+
             processTxFromBestChain(tx, wasPending);
         } else {
             checkState(sideChain);
@@ -1015,6 +1075,11 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
                 setLastBlockSeenTimeSecs(block.getHeader().getTimeSeconds());
             }
 
+            if(CS.log != null)
+            {
+                CS.log.info("New block " + block.getHeight() + ": " + block.getHeader().getHashAsString());
+            }
+            
             // TODO: Clarify the code below.
             // Notify all the BUILDING transactions of the new block.
             // This is so that they can update their work done and depth.
@@ -1059,7 +1124,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
                     tx.getConfidence().getConfidenceType().name());
             dead.remove(tx.getHash());
         }
-
+        
         // Update tx and other unspent/pending transactions by connecting inputs/outputs.
         updateForSpends(tx, true);
 
@@ -1276,6 +1341,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
         tx.verify();
         lock.lock();
         try {
+            log.info("!!!! commit START!!! " + tx.getHashAsString());
             if (pending.containsKey(tx.getHash()))
                 return false;
             log.info("commitTx of {}", tx.getHashAsString());
@@ -1291,6 +1357,19 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
             tx.getConfidence().setConfidenceType(ConfidenceType.PENDING);
             confidenceChanged.put(tx, TransactionConfidence.Listener.ChangeReason.TYPE);
             addWalletTransaction(Pool.PENDING, tx);
+            
+            
+/* CSPK-mike START */
+            
+            // Looking for assets in pending transaction
+            CS.log.info("New tx " + tx.getHash().toString() + " in memory pool");
+            
+            log.info("!!!! commit HIT!!! " + tx.getHashAsString());
+            CSTransactionAssets txAssets=new CSTransactionAssets(tx);
+            txAssets.updateAssetBalances(this,0,CS.getInputAssetBalances(tx));
+            CS.addToRecentSends(tx);
+            
+/* CSPK-mike END */
 
             try {
                 BigInteger valueSentFromMe = tx.getValueSentFromMe(this);
@@ -1701,6 +1780,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
          * <p>Be very careful when value is smaller than {@link Transaction#MIN_NONDUST_OUTPUT} as the transaction will
          * likely be rejected by the network in this case.</p>
          */
+        
         public static SendRequest to(Address destination, BigInteger value) {
             SendRequest req = new SendRequest();
             final NetworkParameters parameters = destination.getParameters();
@@ -1710,6 +1790,86 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
             return req;
         }
 
+/* CSPK-mike START */
+        
+        // CoinSpark assets extensions of SendRequest class
+        private class CSAssetTransfer
+        {
+            int assetID;
+            BigInteger value;
+            int first;
+            int count;
+            
+            public CSAssetTransfer(){}
+            
+            public CSAssetTransfer(int OutputID,int AssetID,BigInteger Value,int Split)
+            {
+                first=OutputID;
+                assetID=AssetID;                
+                value=Value;
+                count=Split;
+            }
+            
+        }
+
+        private ArrayList<CSAssetTransfer> assetTransfers=null;
+        private int[] assetsEncoded;
+        private BigInteger assetFee = BigInteger.ZERO;
+        CoinSparkTransferList transfers;
+               
+        private void addAssetTransfer(int OutputID,int AssetID,BigInteger Value,int split)
+        {
+            assetTransfers.add(new CSAssetTransfer(OutputID, AssetID, Value,split));
+        }
+        
+        /**
+         * Creates new asset transfer transaction.
+         * 
+         * @param destination - destination address
+         * @param value - BTC value (in satoshis). Set by the wallet - set it to minimal anti-dust value or so
+         * @param assetID - Asset ID to send
+         * @param assetValue - Asset value tot transfer, if assetValue=0 - genesis, value should be retrieved from asset info
+         * @param split - split value into this number of outputs
+         * @return SendRequest object or null on failure
+         */
+        
+        public static SendRequest to(Address destination,BigInteger value,int assetID, BigInteger assetValue,int split) {
+            
+            if(value.longValue() % split != 0)
+            {
+                return null;
+            }
+            
+            if(assetValue.longValue() % split != 0)
+            {
+                return null;
+            }
+            
+            BigInteger bi=value.divide(BigInteger.valueOf(split));
+            SendRequest req=to(destination,bi);
+            
+            req.assetTransfers=new ArrayList<CSAssetTransfer>();
+            req.addAssetTransfer(req.tx.getOutputs().size()-1, assetID, assetValue,split);
+            
+            for(int i=1;i<split;i++)
+            {
+                req.tx.addOutput(bi, destination);
+            }
+            
+            return req;
+        }
+        
+        
+        
+        private void resetTxInputs(List<TransactionInput> originalInputs) {
+            tx.clearInputs();
+            for (TransactionInput input : originalInputs){                
+                tx.addInput(input);
+            }
+        }
+        
+/* CSPK-mike END */
+        
         /**
          * <p>Creates a new SendRequest to the given pubkey for the given value.</p>
          *
@@ -1919,12 +2079,17 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
 
             // If any inputs have already been added, we don't need to get their value from wallet
             BigInteger totalInput = BigInteger.ZERO;
+            
+/* CSPK-mike START */            
+/* Code commented out, input value is calculated after asset inputs were added            
             for (TransactionInput input : req.tx.getInputs())
                 if (input.getConnectedOutput() != null)
                     totalInput = totalInput.add(input.getConnectedOutput().getValue());
                 else
                     log.warn("SendRequest transaction already has inputs but we don't know how much they are worth - they will be added to fee.");
             value = value.subtract(totalInput);
+*/ 
+/* CSPK-mike START */            
 
             List<TransactionInput> originalInputs = new ArrayList<TransactionInput>(req.tx.getInputs());
 
@@ -1949,12 +2114,41 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
             // Note that output.isMine(this) needs to test the keychain which is currently an array, so it's
             // O(candidate outputs ^ keychain.size())! There's lots of low hanging fruit here.
             LinkedList<TransactionOutput> candidates = calculateAllSpendCandidates(true);
+            
             CoinSelection bestCoinSelection;
             TransactionOutput bestChangeOutput = null;
             if (!req.emptyWallet) {
                 // This can throw InsufficientMoneyException.
                 FeeCalculation feeCalculation;
-                feeCalculation = new FeeCalculation(req, value, originalInputs, needAtLeastReferenceFee, candidates);
+/* CSPK-mike START */                
+//                feeCalculation = new FeeCalculation(req, value, originalInputs, needAtLeastReferenceFee, candidates);
+                // Fee and inputs calculation
+                if(CS.createAssetTransfers(req, originalInputs, candidates))
+                {
+                    totalInput = BigInteger.ZERO;
+                    for (TransactionInput input : req.tx.getInputs())
+                    {
+                        if (input.getConnectedOutput() != null)
+                        {
+                            totalInput = totalInput.add(input.getConnectedOutput().getValue());
+                        }
+                        else
+                        {
+                            log.warn("SendRequest transaction already has inputs but we don't know how much they are worth - they will be added to fee.");
+                        }
+                    }
+                    value=totalOutput;
+                    value = value.subtract(totalInput);
+
+                    originalInputs = new ArrayList<TransactionInput>(req.tx.getInputs());
+                    // Coinspark transaction has to have change output even if there are no explicit transfers.
+                    feeCalculation = new FeeCalculation(req, value, originalInputs, needAtLeastReferenceFee, candidates,Transaction.MIN_NONDUST_OUTPUT);
+                }
+                else
+                {
+                    throw new InsufficientMoneyException.CouldNotAdjustDownwards();
+                }
+/* CSPK-mike END */                
                 bestCoinSelection = feeCalculation.bestCoinSelection;
                 bestChangeOutput = feeCalculation.bestChangeOutput;
             } else {
@@ -1974,10 +2168,46 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
             if (req.ensureMinRequiredFee && req.emptyWallet) {
                 final BigInteger baseFee = req.fee == null ? BigInteger.ZERO : req.fee;
                 final BigInteger feePerKb = req.feePerKb == null ? BigInteger.ZERO : req.feePerKb;
-                Transaction tx = req.tx;
+                Transaction tx = req.tx;                
                 if (!adjustOutputDownwardsForFee(tx, bestCoinSelection, baseFee, feePerKb))
                     throw new InsufficientMoneyException.CouldNotAdjustDownwards();
             }
+            
+/* CSPK-mike START */                
+            // Input calculation for "Empty wallet" request
+            if(req.emptyWallet)
+            {
+                Transaction tx = req.tx;                
+                TransactionOutput output = tx.getOutput(0);
+                if(CS.createAssetTransfersForEmptyWallet(req, output.getValue().subtract(output.getMinNonDustValue())))
+                {
+                    if (req.ensureMinRequiredFee) 
+                    {
+                        final BigInteger baseFee = req.fee == null ? BigInteger.ZERO : req.fee;
+                        final BigInteger feePerKb = req.feePerKb == null ? BigInteger.ZERO : req.feePerKb;
+                        totalOutput = bestCoinSelection.valueGathered;
+                        output.setValue(totalOutput);
+                        if (!adjustOutputDownwardsForFee(tx, bestCoinSelection, baseFee, feePerKb,req.assetFee))
+                        {
+                            CS.log.warning("Empty wallet: not enough bitcoins to transfer assets.");
+                            tx.getOutputs().clear();
+                            output.setValue(totalOutput);
+                            tx.addOutput(output);
+                            req.assetsEncoded=null;
+                            req.assetFee=BigInteger.ZERO;
+                            if (!adjustOutputDownwardsForFee(tx, bestCoinSelection, baseFee, feePerKb))
+                            {
+                                throw new InsufficientMoneyException.CouldNotAdjustDownwards();                            
+                            }
+                        }
+                        totalOutput=output.getValue();
+                        bestChangeOutput=null;
+                    }
+                }
+                totalOutput=output.getValue();
+                bestChangeOutput=null;                
+            }
+/* CSPK-mike END */                
 
             totalInput = totalInput.add(bestCoinSelection.valueGathered);
 
@@ -1995,6 +2225,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
             if (sign) {
                 sign(req);
             }
+
 
             // Check size.
             int size = req.tx.bitcoinSerialize().length;
@@ -2050,6 +2281,28 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
         return output.getMinNonDustValue().compareTo(output.getValue()) <= 0;
     }
 
+/* CSPK-mike START */    
+    // Version of adjustment function above taking into account minimal fee
+    private boolean adjustOutputDownwardsForFee(Transaction tx, CoinSelection coinSelection, BigInteger baseFee, BigInteger feePerKb, BigInteger minFee) {
+        TransactionOutput output = tx.getOutput(0);
+        // Check if we need additional fee due to the transaction's size
+        int size = tx.bitcoinSerialize().length;
+        size += estimateBytesForSigning(coinSelection);
+        BigInteger fee = baseFee.add(BigInteger.valueOf((size / 1000) + 1).multiply(feePerKb));
+        if(fee.compareTo(minFee)<0)
+        {
+            fee=minFee;                    
+        }
+        output.setValue(output.getValue().subtract(fee));
+        // Check if we need additional fee due to the output's value
+        if (output.getValue().compareTo(Utils.CENT) < 0 && fee.compareTo(Transaction.REFERENCE_DEFAULT_MIN_TX_FEE) < 0)
+        {
+            output.setValue(output.getValue().subtract(Transaction.REFERENCE_DEFAULT_MIN_TX_FEE.subtract(fee)));
+        }
+        return output.getMinNonDustValue().compareTo(output.getValue()) <= 0;
+    }
+/* CSPK-mike END */    
+    
     /**
      * Returns a list of all possible outputs we could possibly spend, potentially even including immature coinbases
      * (which the protocol may forbid us from spending). In other words, return all outputs that this wallet holds
@@ -2593,13 +2846,45 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
                 Collections.sort(mapBlockTx.get(blockHash));
 
             List<Sha256Hash> oldBlockHashes = new ArrayList<Sha256Hash>(oldBlocks.size());
+            
+/* CSPK-mike START */
+            int MinHeight=-1;
+            int MaxHeight=-1;
+/* CSPK-mike END */
+            
             log.info("Old part of chain (top to bottom):");
             for (StoredBlock b : oldBlocks) {
+/* CSPK-mike START */
+                if(MinHeight == -1)
+                {
+                    MinHeight=b.getHeight();
+                    MaxHeight=b.getHeight();
+                }
+                else
+                {
+                    if(b.getHeight() < MinHeight){
+                        MinHeight=b.getHeight();
+                    }
+                    if(b.getHeight() > MaxHeight){
+                        MaxHeight=b.getHeight();
+                    }
+                }
+/* CSPK-mike END */
                 log.info("  {}", b.getHeader().getHashAsString());
                 oldBlockHashes.add(b.getHeader().getHash());
             }
+            
+/* CSPK-mike START */
+            // Asset references for removed blocks should be cleared.
+            CS.log.info("Blockchain reorganizing. Removing blocks " + MinHeight + " - " + MaxHeight);
+            CS.clearAssetRefs(MinHeight, MaxHeight);            
+/* CSPK-mike END */
+            
             log.info("New part of chain (top to bottom):");
             for (StoredBlock b : newBlocks) {
+/* CSPK-mike START */
+                CS.log.info("New block " + b.getHeight() + ": " + b.getHeader().getHashAsString());
+/* CSPK-mike END */
                 log.info("  {}", b.getHeader().getHashAsString());
             }
 
@@ -3549,9 +3834,228 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
     // Fee calculation code.
 
     private class FeeCalculation {
+        
         private CoinSelection bestCoinSelection;
         private TransactionOutput bestChangeOutput;
 
+        /**
+         * This constructor creates selection with output is valueChangeMinimal>Transaction.MIN_NONDUST_OUTPUT.
+         * Change is mandatory in CoinSpark transaction as assets may flow implicitly to it.
+         * @param req
+         * @param value
+         * @param originalInputs
+         * @param needAtLeastReferenceFee
+         * @param candidates
+         * @param valueChangeMinimal
+         * @throws InsufficientMoneyException 
+         */
+        
+        public FeeCalculation(SendRequest req, BigInteger value, List<TransactionInput> originalInputs,
+                              boolean needAtLeastReferenceFee, LinkedList<TransactionOutput> candidates,
+                              BigInteger valueChangeMinimal) throws InsufficientMoneyException {
+            checkState(lock.isHeldByCurrentThread());
+            // There are 3 possibilities for what adding change might do:
+            // 1) No effect
+            // 2) Causes increase in fee (change < 0.01 COINS)
+            // 3) Causes the transaction to have a dust output or change < fee increase (ie change will be thrown away)
+            // If we get either of the last 2, we keep note of what the inputs looked like at the time and try to
+            // add inputs as we go up the list (keeping track of minimum inputs for each category).  At the end, we pick
+            // the best input set as the one which generates the lowest total fee.
+            BigInteger additionalValueForNextCategory=null;
+            CoinSelection selection3 = null;
+            CoinSelection selection2 = null;
+            TransactionOutput selection2Change = null;
+            CoinSelection selection1 = null;
+            TransactionOutput selection1Change = null;
+            // We keep track of the last size of the transaction we calculated but only if the act of adding inputs and
+            // change resulted in the size crossing a 1000 byte boundary. Otherwise it stays at zero.
+            int lastCalculatedSize = 0;
+            BigInteger valueNeeded, valueMissing = null;
+            
+            while (true) {
+                resetTxInputs(req, originalInputs);
+
+                BigInteger fees = req.fee == null ? BigInteger.ZERO : req.fee;
+                if (lastCalculatedSize > 0) {
+                    // If the size is exactly 1000 bytes then we'll over-pay, but this should be rare.
+                    fees = fees.add(BigInteger.valueOf((lastCalculatedSize / 1000) + 1).multiply(req.feePerKb));
+                } else {
+                    fees = fees.add(req.feePerKb);  // First time around the loop.
+                }
+                
+                if (needAtLeastReferenceFee && fees.compareTo(Transaction.REFERENCE_DEFAULT_MIN_TX_FEE) < 0)
+                    fees = Transaction.REFERENCE_DEFAULT_MIN_TX_FEE;
+
+                if (req.ensureMinRequiredFee && fees.compareTo(req.assetFee) < 0 )
+                {
+                    fees=req.assetFee;
+                }
+                                
+                
+                valueNeeded = value.add(fees);
+                                
+                if (additionalValueForNextCategory == null)
+                    additionalValueForNextCategory=BigInteger.ZERO;
+                
+                additionalValueForNextCategory = additionalValueForNextCategory.add(valueChangeMinimal);
+                
+                valueNeeded = valueNeeded.add(additionalValueForNextCategory);
+                
+                
+                BigInteger additionalValueSelected = additionalValueForNextCategory;
+
+                // Of the coins we could spend, pick some that we actually will spend.
+                CoinSelector selector = req.coinSelector == null ? coinSelector : req.coinSelector;
+                CoinSelection selection = selector.select(valueNeeded, candidates);
+                // Can we afford this?
+                if (selection.valueGathered.compareTo(valueNeeded) < 0) {
+                    valueMissing = valueNeeded.subtract(selection.valueGathered);
+                    break;
+                }
+                checkState(selection.gathered.size() > 0 || originalInputs.size() > 0);
+
+                // We keep track of an upper bound on transaction size to calculate fees that need to be added.
+                // Note that the difference between the upper bound and lower bound is usually small enough that it
+                // will be very rare that we pay a fee we do not need to.
+                //
+                // We can't be sure a selection is valid until we check fee per kb at the end, so we just store
+                // them here temporarily.
+                boolean eitherCategory2Or3 = false;
+                boolean isCategory3 = false;
+
+                BigInteger change = selection.valueGathered.subtract(valueNeeded);
+                
+                change = change.add(additionalValueSelected);
+
+                // If change is < 0.01 BTC, we will need to have at least minfee to be accepted by the network
+                if (req.ensureMinRequiredFee && !change.equals(BigInteger.ZERO) &&
+                        change.compareTo(Utils.CENT) < 0 && fees.compareTo(Transaction.REFERENCE_DEFAULT_MIN_TX_FEE) < 0) {
+                    // This solution may fit into category 2, but it may also be category 3, we'll check that later
+                    eitherCategory2Or3 = true;
+                    additionalValueForNextCategory = Utils.CENT;
+                    // If the change is smaller than the fee we want to add, this will be negative
+                    change = change.subtract(Transaction.REFERENCE_DEFAULT_MIN_TX_FEE.subtract(fees));
+                }
+
+                int size = 0;
+                TransactionOutput changeOutput = null;
+                if (change.compareTo(valueChangeMinimal) >= 0) {
+                    // The value of the inputs is greater than what we want to send. Just like in real life then,
+                    // we need to take back some coins ... this is called "change". Add another output that sends the change
+                    // back to us. The address comes either from the request or getChangeAddress() as a default.
+                    Address changeAddress = req.changeAddress;
+                    if (changeAddress == null)
+                        changeAddress = getChangeAddress();
+                    changeOutput = new TransactionOutput(params, req.tx, change, changeAddress);
+                    // If the change output would result in this transaction being rejected as dust, just drop the change and make it a fee
+                    if (req.ensureMinRequiredFee && Transaction.MIN_NONDUST_OUTPUT.compareTo(change) >= 0) {
+                        // This solution definitely fits in category 3
+                        if(Transaction.MIN_NONDUST_OUTPUT.compareTo(valueChangeMinimal)>0)
+                        {
+                            isCategory3 = true;
+                            additionalValueForNextCategory = Transaction.REFERENCE_DEFAULT_MIN_TX_FEE.add(
+                                                             Transaction.MIN_NONDUST_OUTPUT.add(BigInteger.ONE));
+                        }
+                    } else {
+                        size += changeOutput.bitcoinSerialize().length + VarInt.sizeOf(req.tx.getOutputs().size()) - VarInt.sizeOf(req.tx.getOutputs().size() - 1);
+                        // This solution is either category 1 or 2
+                        if (!eitherCategory2Or3) // must be category 1
+                            additionalValueForNextCategory = null;
+                    }
+                } else {
+                    if (eitherCategory2Or3) {
+                        // This solution definitely fits in category 3 (we threw away change because it was smaller than MIN_TX_FEE)
+                        // Category 3 is possible only if valueChangeMinimal is a dust
+                        if(Transaction.MIN_NONDUST_OUTPUT.compareTo(valueChangeMinimal)>0)
+                        {
+                            isCategory3 = true;
+                            additionalValueForNextCategory = Transaction.REFERENCE_DEFAULT_MIN_TX_FEE.add(BigInteger.ONE);
+                        }
+                    }
+                }
+
+                // Now add unsigned inputs for the selected coins.
+                for (TransactionOutput output : selection.gathered) {
+                    TransactionInput input = req.tx.addInput(output);
+                    // If the scriptBytes don't default to none, our size calculations will be thrown off.
+                    checkState(input.getScriptBytes().length == 0);
+                }
+
+                // Estimate transaction size and loop again if we need more fee per kb. The serialized tx doesn't
+                // include things we haven't added yet like input signatures/scripts or the change output.
+                size += req.tx.bitcoinSerialize().length;
+                size += estimateBytesForSigning(selection);
+                if (size/1000 > lastCalculatedSize/1000 && req.feePerKb.compareTo(BigInteger.ZERO) > 0) {
+                    lastCalculatedSize = size;
+                    // We need more fees anyway, just try again with the same additional value
+                    additionalValueForNextCategory = additionalValueSelected;
+                    continue;
+                }
+
+                if (isCategory3) {
+                    if (selection3 == null)
+                        selection3 = selection;
+                } else if (eitherCategory2Or3) {
+                    // If we are in selection2, we will require at least CENT additional. If we do that, there is no way
+                    // we can end up back here because CENT additional will always get us to 1
+                    checkState(selection2 == null);
+                    checkState(additionalValueForNextCategory.equals(Utils.CENT));
+                    selection2 = selection;
+                    selection2Change = checkNotNull(changeOutput); // If we get no change in category 2, we are actually in category 3
+                } else {
+                    // Once we get a category 1 (change kept), we should break out of the loop because we can't do better
+                    checkState(selection1 == null);
+                    checkState(additionalValueForNextCategory == null);
+                    selection1 = selection;
+                    selection1Change = changeOutput;
+                }
+                
+
+                if (additionalValueForNextCategory != null) {
+                    checkState(additionalValueForNextCategory.compareTo(additionalValueSelected) > 0);
+                    continue;
+                }
+                
+                break;
+            }
+
+            resetTxInputs(req, originalInputs);
+
+            if (selection3 == null && selection2 == null && selection1 == null) {
+                checkNotNull(valueMissing);
+                log.warn("Insufficient value in wallet for send: needed {} more", bitcoinValueToFriendlyString(valueMissing));
+                throw new InsufficientMoneyException(valueMissing);
+            }
+
+            BigInteger lowestFee = null;
+            bestCoinSelection = null;
+            bestChangeOutput = null;
+            if (selection1 != null) {
+                if (selection1Change != null)
+                    lowestFee = selection1.valueGathered.subtract(selection1Change.getValue());
+                else
+                    lowestFee = selection1.valueGathered;
+                bestCoinSelection = selection1;
+                bestChangeOutput = selection1Change;
+            }
+
+            if (selection2 != null) {
+                BigInteger fee = selection2.valueGathered.subtract(checkNotNull(selection2Change).getValue());
+                if (lowestFee == null || fee.compareTo(lowestFee) < 0) {
+                    lowestFee = fee;
+                    bestCoinSelection = selection2;
+                    bestChangeOutput = selection2Change;
+                }
+            }
+
+            if (selection3 != null) {
+                if (lowestFee == null || selection3.valueGathered.compareTo(lowestFee) < 0) {
+                    bestCoinSelection = selection3;
+                    bestChangeOutput = null;
+                }
+            }
+        }
+        
         public FeeCalculation(SendRequest req, BigInteger value, List<TransactionInput> originalInputs,
                               boolean needAtLeastReferenceFee, LinkedList<TransactionOutput> candidates) throws InsufficientMoneyException {
             checkState(lock.isHeldByCurrentThread());
@@ -3959,4 +4463,1408 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
         }.start();
         return rekeyTx;
     }
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+    
+    
+/* CSPK-mike START */
+    /**
+     * CoinSpark object - wraps CoinSpark related calls
+     */
+    
+    public CoinSpark CS;
+    
+    public class CoinSpark{
+        
+        private static final int OP_RETURN_MAXIMUM_LENGTH = 40;                     
+        
+        private CSAssetDatabase assetDB;
+        private CSBalanceDatabase balanceDB;
+        
+        /**
+         * CounSpark logger
+         */
+        
+        public CSLogger log;
+        private Wallet wallet;
+        private Map <String,Long> mapRecentSends=new HashMap<String,Long>();
+
+
+        private CoinSpark(Wallet ParentWallet)
+        {
+            wallet=ParentWallet;
+        }
+
+        /**
+         * Opens CoinSpark databases.
+         * @param FilePrefix Wallet files prefix
+         * @return true on success, false on failure
+         */
+        
+        public boolean initCSDatabases(String FilePrefix)
+        {
+            log=new CSLogger(FilePrefix + ".cslog");
+            
+            assetDB=new CSAssetDatabase(FilePrefix,log);
+            
+            balanceDB=new CSBalanceDatabase(FilePrefix, assetDB,log);
+
+            log.info("Wallet started");
+
+            log.info("Blockchain height: " + lastBlockSeenHeight);
+            
+            int [] assetIDs=assetDB.getAssetIDs();
+
+            if(assetIDs != null)
+            {
+                for(int assetID : assetIDs)
+                {
+                    CSAsset asset=assetDB.getAsset(assetID);
+                    log.info("Asset " + assetID + ": " + asset.status());
+                }
+            }            
+/*            
+            Map <Integer,BigInteger> mapQtys=CS.getAllUnspentAssetQuantities(true);                
+
+            for (Map.Entry<Integer, BigInteger> entry : mapQtys.entrySet()) 
+            {
+                log.info("Qty Asset " + entry.getKey() + ": " + entry.getValue());
+            }        
+  */          
+            return true;
+        }
+        
+        public CSAssetDatabase getAssetDB()
+        {
+            return assetDB;
+        }
+
+        public CSBalanceDatabase getBalanceDB()
+        {
+            return balanceDB;
+        }
+
+        private CoinSparkIORange findAssetInputRange(SendRequest req,int AssetID,BigInteger AssetValue,List<TransactionInput> originalInputs,LinkedList<TransactionOutput> candidates)
+        {        
+            ArrayList<CSTransactionOutput> assetCandidates=new ArrayList<CSTransactionOutput>();
+            ArrayList<CSTransactionOutput> selectedCandidates=new ArrayList<CSTransactionOutput>();
+
+            int first,count,id;
+
+            first=-1;
+            count=0;
+
+            BigInteger valueNeeded=AssetValue;
+            id=0;
+            for(TransactionInput input: originalInputs)
+            {
+                TransactionOutput output=input.getConnectedOutput();
+                if(output == null){
+                    return null;
+                }
+                CSTransactionOutput txOut=new CSTransactionOutput(output.parentTransaction.getHash(), output.getIndex());
+                CSBalance balance = balanceDB.getBalance(txOut,AssetID);
+                if(balance != null)
+                {
+                    if((balance.getState() == CSBalance.CSBalanceState.VALID) || (balance.getState() == CSBalance.CSBalanceState.SELF))
+                    {
+                        valueNeeded.subtract(balance.getQty());
+                        if(first<0)
+                        {
+                            first=id;
+                        }
+                        count=id-first+1;
+                    }
+                }
+                id++;
+            }
+
+            if(valueNeeded.compareTo(BigInteger.ZERO)<=0)
+            {
+                CoinSparkIORange iRange=new CoinSparkIORange();
+                iRange.first=first;
+                iRange.count=count;
+                return iRange;
+            }
+
+            if(first<0)
+            {
+                first=originalInputs.size();
+                count=0;
+            }
+
+            for(TransactionOutput output: candidates)
+            {
+                CSTransactionOutput txOut=new CSTransactionOutput(output.getParentTransaction(), output.getIndex());
+                CSBalance balance = balanceDB.getBalance(txOut,AssetID);
+                if(balance != null)
+                {
+                    if((balance.getState() == CSBalance.CSBalanceState.VALID) || (balance.getState() == CSBalance.CSBalanceState.SELF))
+                    {
+                        txOut.setValue(balance.getQty());
+                        assetCandidates.add(txOut);
+                    }                
+                }
+            }
+
+            CSTransactionOutput.sortOutputs(assetCandidates);
+
+            BigInteger assetTotal = BigInteger.ZERO;
+
+            for (CSTransactionOutput output : assetCandidates) 
+            {
+                if (assetTotal.compareTo(valueNeeded)>=0){
+                    break;
+                }
+                if(!DefaultCoinSelector.isSelectable(output.getParentTransaction())){
+                    continue;
+                }
+                selectedCandidates.add(output);
+                assetTotal=assetTotal.add(output.getValue());
+            }
+
+            if (assetTotal.compareTo(valueNeeded) < 0) {
+                return null;
+            }
+
+            for (CSTransactionOutput assetOutput : selectedCandidates) {
+                TransactionOutput foundOutput=null;
+                for(TransactionOutput output: candidates)
+                {
+                    if(assetOutput.getParentTransaction().getHash().equals(output.parentTransaction.getHash()))
+                    {
+                        if(assetOutput.getIndex() == output.getIndex())
+                        {
+                            req.tx.addInput(output);                  
+                            foundOutput=output;
+                            count++;
+                        }
+                    }
+                }            
+                candidates.remove(foundOutput);
+            }
+
+            CoinSparkIORange iRange=new CoinSparkIORange();
+            iRange.first=first;
+            iRange.count=count;
+            
+            return iRange;        
+        }
+
+
+        private boolean createAssetTransfers(SendRequest req,List<TransactionInput> originalInputs,LinkedList<TransactionOutput> candidates)
+        {
+            req.transfers=null;
+
+            if(req.assetTransfers==null)
+            {
+                return true;
+            }
+
+            log.info("Creating asset transfer metadata.");
+                    
+            List<Integer> assetIDs= new ArrayList<Integer>();        
+            List<BigInteger> assetValues= new ArrayList<BigInteger>();   
+
+            for (SendRequest.CSAssetTransfer assetTransfer : req.assetTransfers) {
+
+                CSAsset asset=assetDB.getAsset(assetTransfer.assetID);
+                if((asset.getAssetState() == CSAsset.CSAssetState.VALID)  && asset.isAssetRefValid())
+                {
+                    int i=assetIDs.indexOf(assetTransfer.assetID);
+                    if(i<0)
+                    {
+                        assetIDs.add(assetTransfer.assetID);
+                        assetValues.add(assetTransfer.value);
+                    }
+                    else
+                    {
+                        assetValues.set(i, assetValues.get(i).add(assetTransfer.value));
+                    }
+                }            
+                else
+                {
+                    log.warning("Cannot create transfer metadata for invalid asset " + assetTransfer.assetID);
+                    return false;
+                }
+            }    
+
+            if(assetIDs.isEmpty())
+            {
+                return true;
+            }
+
+
+            CoinSparkIORange [] assetIRanges=new CoinSparkIORange[assetIDs.size()];
+
+            for(int i=0;i<assetIDs.size();i++)
+            {
+                CoinSparkIORange iRange=findAssetInputRange(req,assetIDs.get(i),assetValues.get(i),originalInputs,candidates);
+                if(iRange == null)
+                {
+                    log.warning("Not enough units for transfer of asset  " + assetIDs.get(i));
+                    req.resetTxInputs(originalInputs);
+                    return false;
+                }
+
+                assetIRanges[i]=iRange;
+            }
+
+            req.transfers = new CoinSparkTransferList(req.assetTransfers.size());
+
+            int countOutputs=req.tx.getOutputs().size();
+            long [] outputSatoshis=new long[countOutputs+2];
+            boolean [] outputRegular=new boolean[countOutputs+2];
+            
+            int count=0;
+            for(TransactionOutput output: req.tx.getOutputs())
+            {
+                outputSatoshis[count]=output.getValue().longValue();
+                outputRegular[count]=true;
+                count++;
+            }
+            
+            outputSatoshis[countOutputs]=0;
+            outputRegular[countOutputs]=false;
+            outputSatoshis[countOutputs+1]=NetworkParameters.MAX_MONEY.longValue();
+            outputRegular[countOutputs+1]=true;
+/*            
+            BigInteger minOutput=BigInteger.valueOf(10000);
+            for(TransactionOutput output: req.tx.getOutputs())
+            {
+                if(minOutput == null)
+                {
+                    minOutput=output.getValue();                        
+                }
+                else
+                {
+                    if(minOutput.compareTo(output.getValue()) > 0)
+                    {
+                        minOutput=output.getValue();
+                    }
+                }
+            }
+*/
+            int id=0;
+
+            req.assetsEncoded=new int[req.assetTransfers.size()];
+            req.assetFee=BigInteger.ZERO;
+
+            
+            for (SendRequest.CSAssetTransfer assetTransfer : req.assetTransfers) {
+
+                int i=assetIDs.indexOf(assetTransfer.assetID);
+                CoinSparkTransfer transfer = new CoinSparkTransfer();
+                transfer.setAssetRef(assetDB.getAsset(assetIDs.get(i)).getAssetReference());
+                transfer.setInputs(assetIRanges[i]);
+                transfer.setOutputs(new CoinSparkIORange(assetTransfer.first, assetTransfer.count));
+                transfer.setQtyPerOutput(assetTransfer.value.longValue()/assetTransfer.count);
+
+//                req.assetFee=req.assetFee.add(minOutput);
+
+                req.transfers.setTransfer(id, transfer);
+
+                req.assetsEncoded[id]=assetTransfer.assetID;
+                id++;
+            }                    
+            
+            req.assetFee=BigInteger.valueOf(req.transfers.calcMinFee(req.tx.getInputs().size(), outputSatoshis, outputRegular));
+
+            byte [] metadata = req.transfers.encode(req.tx.getInputs().size(), req.tx.getOutputs().size(),OP_RETURN_MAXIMUM_LENGTH);
+
+            if (metadata != null)
+            {
+               addMetadataToTx(metadata, req.tx);
+            }
+            else
+            {
+                log.warning("Cannot encode transfer metadata");
+                req.assetFee=BigInteger.ZERO;
+                req.assetsEncoded=null;
+                return false;
+            }
+
+            log.info("Transfer metadata was successfully created.");
+            return true;
+        }
+
+        private boolean createAssetTransfersForEmptyWallet(SendRequest req,BigInteger MaxValue)
+        {
+            Map<Integer,BigInteger> assetMap=getAllUnspentAssetQuantities(false);
+            
+            int feePerAsset=Transaction.REFERENCE_DEFAULT_MIN_TX_FEE.intValue();
+            int maxAssets=MaxValue.divide(BigInteger.valueOf(feePerAsset)).intValue();
+
+            if(maxAssets > assetMap.size()-1)
+            {
+                maxAssets=assetMap.size()-1;
+            }
+
+            if(maxAssets > 4)
+            {
+                maxAssets=4;
+            }
+            
+            if(maxAssets == 0)
+            {
+                return false;
+            }
+
+            log.info("Creating empty wallet transfer metadata.");
+            
+            int assetCount=0;
+            req.transfers = new CoinSparkTransferList(maxAssets);
+            CoinSparkIORange iRange=new CoinSparkIORange(0,req.tx.getInputs().size());
+
+            req.assetsEncoded=new int[maxAssets];
+            req.assetFee=BigInteger.ZERO;
+
+            for (Map.Entry<Integer, BigInteger> entry : assetMap.entrySet()) 
+            {
+                int assetID=entry.getKey();
+                CSAsset asset=null;
+                if(assetID > 0)
+                {
+                    asset=assetDB.getAsset(assetID);
+                }
+                if((asset != null) && (asset.isAssetRefValid()) && (assetCount < maxAssets) && (entry.getValue().compareTo(BigInteger.ZERO) > 0))
+                {
+                    CoinSparkTransfer transfer = new CoinSparkTransfer();
+                    transfer.setAssetRef(assetDB.getAsset(assetID).getAssetReference());
+                    transfer.setInputs(iRange);
+                    transfer.setOutputs(new CoinSparkIORange(0, 1));
+                    transfer.setQtyPerOutput(1);                
+                    req.assetFee=req.assetFee.add(BigInteger.valueOf(feePerAsset));
+
+                    req.transfers.setTransfer(assetCount, transfer);
+
+                    req.assetsEncoded[assetCount]=assetID;
+                    assetCount++;
+                }
+            }   
+
+            byte [] metadata = req.transfers.encode( req.tx.getInputs().size(), req.tx.getOutputs().size(),OP_RETURN_MAXIMUM_LENGTH);
+
+            if (metadata != null)
+            {
+                addMetadataToTx(metadata, req.tx);
+            }
+            else
+            {
+                log.warning("Cannot encode transfer metadata");
+                req.assetFee=BigInteger.ZERO;
+                req.assetsEncoded=null;
+                return false;
+            }
+
+            log.info("Transfer metadata was successfully created.");
+            return true;
+        }
+
+        private void addMetadataToTx(byte [] metadata, Transaction tx) 
+        {
+            tx.addOutput(new TransactionOutput(getParams(), tx, BigInteger.ZERO, CoinSparkBase.metadataToScript(metadata)));
+        }
+
+        /**
+         * Returns asset quantities send by current request.
+         * @param req SendRequest object
+         * @param AfterComplete if false - quantities which should be sent, if true - quantities actually sent
+         * @return AssetID -> Quantity map
+         */
+        
+        public Map<Integer,BigInteger> getAssetTransferValues(SendRequest req,boolean AfterComplete)
+        {
+            Map <Integer,BigInteger> map= new HashMap<Integer,BigInteger>();
+            
+            if(req.assetTransfers != null)
+            {
+                for (SendRequest.CSAssetTransfer assetTransfer : req.assetTransfers) 
+                {
+                    boolean takeIt=true;
+
+                    if(AfterComplete)
+                    {
+                        takeIt=false;
+                        for(int id : req.assetsEncoded)
+                        {
+                            if(id == assetTransfer.assetID)
+                            {
+                                takeIt=true;
+                            }
+                        }
+                    }
+
+                    if(takeIt)
+                    {
+                        BigInteger value=BigInteger.ZERO;
+                        if(map.containsKey(assetTransfer.assetID))
+                        {
+                            value=map.get(assetTransfer.assetID);
+                        }
+                        map.put(assetTransfer.assetID,value.add(assetTransfer.value));
+                    }                
+                }                    
+            }
+            else
+            {
+                if(req.assetsEncoded != null)
+                {
+                    for(int id : req.assetsEncoded)
+                    {
+                        BigInteger value=getUnspentAssetQuantity(id);
+                        map.put(id,value);
+                    }                    
+                }                    
+            }
+            
+            return map;
+        }
+
+        public class AssetBalance
+        {
+            public BigInteger total;
+            public BigInteger spendable;
+            public boolean updatingNow;            
+        }
+        
+        private AssetBalance getAssetBalance(LinkedList<TransactionOutput> candidates,int AssetID)
+        {
+            if (assetDB == null) {
+                return null;
+            }
+            
+            AssetBalance assetBalance=new AssetBalance();
+            assetBalance.total=BigInteger.ZERO;
+            assetBalance.spendable=BigInteger.ZERO;
+            assetBalance.updatingNow=false;
+            
+            if(AssetID > 0)
+            {
+                CSAsset asset=assetDB.getAsset(AssetID);
+                
+                if(asset != null)
+                {
+                    for(TransactionOutput output: candidates)
+                    {
+                        CSTransactionOutput txOut=new CSTransactionOutput(output.getParentTransaction(), output.getIndex());
+                        CSBalance balance = balanceDB.getBalance(txOut,AssetID);
+                        if((balance != null) && (balance.getQty() != null))
+                        {
+                            BigInteger value=balance.getQty();
+                            if(value != null && (value.compareTo(BigInteger.ZERO) > 0))
+                            {
+                                if((balance.getState() == CSBalance.CSBalanceState.NEVERCHECKED) || (balance.getState() == CSBalance.CSBalanceState.UNKNOWN))
+                                {
+                                    assetBalance.updatingNow=true;
+                                    value=BigInteger.ZERO;
+                                }
+                            }
+                            assetBalance.total=assetBalance.total.add(value);
+                            if(output.isAvailableForSpending() && DefaultCoinSelector.isSelectable(output.getParentTransaction()))
+                            {
+                                if(((balance.getState() == CSBalance.CSBalanceState.VALID) || (balance.getState() == CSBalance.CSBalanceState.SELF))
+                                    && asset.isAssetRefValid())
+                                {
+                                    assetBalance.spendable=assetBalance.spendable.add(value);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            else
+            {
+                for(TransactionOutput output: candidates)
+                {
+                    BigInteger value=output.getValue();
+                    assetBalance.total=assetBalance.total.add(value);
+                    if(output.isAvailableForSpending() && DefaultCoinSelector.isSelectable(output.getParentTransaction()))
+                    {
+                        assetBalance.spendable=assetBalance.spendable.add(value);
+                    }
+                }            
+            }
+            
+            return assetBalance;
+        }
+
+        /**
+         * Returns balance for given asset.
+         * @param AssetID Asset ID in database
+         * @return balance for given asset.
+         */
+        
+        public AssetBalance getAssetBalance(int AssetID)
+        {
+            LinkedList<TransactionOutput> candidates = calculateAllSpendCandidates(true);
+
+            return getAssetBalance(candidates,AssetID);            
+        }
+        
+        /**
+         * Returns balances for all assets, including BTC (asset ID = 0)
+         * @return balances for all assets
+         */
+        
+        public Map<Integer,AssetBalance> getAllAssetBalances()
+        {
+            
+            LinkedList<TransactionOutput> candidates = calculateAllSpendCandidates(true);
+
+            Map <Integer,AssetBalance> map= new HashMap<Integer,AssetBalance>();
+
+            if (assetDB == null){
+                return map;                
+            } 
+            
+            map.put(0,getAssetBalance(candidates,0));
+
+            int [] assetIDs=assetDB.getAssetIDs();
+            
+            if(assetIDs != null)
+            {
+                for(int assetID: assetIDs)
+                {
+                    map.put(assetID,getAssetBalance(candidates,assetID));
+                }        
+            }
+            
+            return map;
+        }
+        
+        
+        private BigInteger getAssetQuantity(LinkedList<TransactionOutput> candidates, int AssetID,boolean OnlySpendable)
+        {
+            BigInteger total=BigInteger.ZERO;        
+
+            if (assetDB == null) {
+                return total;
+            }
+            
+            if(AssetID > 0)
+            {
+                CSAsset asset=assetDB.getAsset(AssetID);
+/*
+                if(asset.getAssetState() != CSAsset.CSAssetState.VALID)
+                {
+                    return total;
+                }
+*/
+                for(TransactionOutput output: candidates)
+                {
+                    CSTransactionOutput txOut=new CSTransactionOutput(output.getParentTransaction(), output.getIndex());
+                    CSBalance balance = balanceDB.getBalance(txOut,AssetID);
+                    if(balance != null)
+                    {
+                        if(!OnlySpendable || 
+                                (((balance.getState() == CSBalance.CSBalanceState.VALID) || (balance.getState() == CSBalance.CSBalanceState.SELF))
+                                && output.isAvailableForSpending()
+                                && asset.isAssetRefValid()
+                                && DefaultCoinSelector.isSelectable(output.getParentTransaction())))
+                        {
+                            if(balance.getQty() != null)
+                            {
+                                if((balance.getState() != CSBalance.CSBalanceState.NEVERCHECKED) || (balance.getState() != CSBalance.CSBalanceState.UNKNOWN))
+                                {
+                                    total=total.add(balance.getQty());
+                                }
+                            }
+                        }
+/*                        
+                        else
+                        {
+                            if(balance.getQty() != null)
+                            {
+                                if(balance.getQty().longValue()>0)
+                                {
+                                    CS.log.info("!!!! Unspendable txout: " +  AssetID + " - " + balance.getQty() + " - " + balance.getState() + " - " 
+                        + output.isAvailableForSpending() + " - " + asset.isAssetRefValid() + " - " + DefaultCoinSelector.isSelectable(output.getParentTransaction()));
+                                }
+                            }                            
+                        }
+                        */
+                    }
+                }
+            }
+            else
+            {
+                for(TransactionOutput output: candidates)
+                {
+                    total=total.add(output.getValue());
+                }            
+            }
+
+            return total;
+        }
+        
+        public BigInteger getUnspentAssetQuantity(int AssetID)
+        {
+            return getUnspentAssetQuantity(AssetID,false);
+        }
+
+        /**
+         * Returns unspent quantity for given asset.
+         * @param AssetID Asset ID in database
+         * @param OnlySpendable return only spendable, i.e. available for spending and VALID
+         * @return unspent quantity for given asset.
+         */
+        
+        public BigInteger getUnspentAssetQuantity(int AssetID,boolean OnlySpendable)
+        {
+            LinkedList<TransactionOutput> candidates = calculateAllSpendCandidates(true);
+
+            return getAssetQuantity(candidates,AssetID,OnlySpendable);
+        }
+
+        /**
+         * Returns totals for all assets, including BTC (asset ID = 0)
+         * @param OnlySpendable return only spendable, i.e. available for spending and VALID
+         * @return totals for all assets
+         */
+
+        public Map<Integer,BigInteger> getAllUnspentAssetQuantities(boolean OnlySpendable)
+        {
+            
+            LinkedList<TransactionOutput> candidates = calculateAllSpendCandidates(true);
+
+            Map <Integer,BigInteger> map= new HashMap<Integer,BigInteger>();
+
+            if (assetDB == null){
+                return map;                
+            } 
+            
+            map.put(0,getAssetQuantity(candidates,0,OnlySpendable));
+
+            int [] assetIDs=assetDB.getAssetIDs();
+            
+            if(assetIDs != null)
+            {
+                for(int assetID: assetIDs)
+                {
+//                    if(assetDB.getAsset(assetID).getAssetState() == CSAsset.CSAssetState.VALID)
+                    {
+                        map.put(assetID,getAssetQuantity(candidates,assetID,OnlySpendable));
+                    }
+                }        
+            }
+            
+            return map;
+        }
+        
+        
+        private Map<Integer, BigInteger> getAssetsQuantities(List<TransactionOutput> outputs)        
+        {
+            Map <Integer,BigInteger> map= new HashMap<Integer,BigInteger>();
+
+            map.put(0, BigInteger.ZERO);
+            for(TransactionOutput output: outputs)
+            {
+                if(output.isMine(wallet))
+                {
+                    map.put(0, map.get(0).add(output.getValue()));
+                    
+                    CSTransactionOutput txOut=new CSTransactionOutput(output.parentTransaction, output.getIndex());
+                    CSBalanceDatabase.CSBalanceIterator iter=balanceDB.getTxOutBalances(txOut);
+
+                    CSBalance balance=iter.next();
+                    while(balance != null)
+                    {
+                        if(balance.getAssetID()>0)
+                        {
+//                            if(balance.getState() == CSBalance.CSBalanceState.VALID)
+                            switch(balance.getState())
+                            {
+                                case ZERO:
+                                    break;
+                                case NEVERCHECKED:                              // We received this tx, but qty is not confirmed yet
+                                case UNKNOWN:
+                                    if(balance.getQty() != null)
+                                    {
+                                        if(balance.getQty().longValue()>0)      // This is actual transfer, but value is unknown. projected value is ignored
+                                        {
+                                            BigInteger value=BigInteger.ZERO;
+                                            if(map.containsKey(balance.getAssetID()))
+                                            {
+                                                value=map.get(balance.getAssetID());
+                                            }                                        
+                                            map.put(balance.getAssetID(),value);
+                                        }
+                                    }
+                                    break;
+                                default:
+                                    BigInteger value=BigInteger.ZERO;
+                                    if(map.containsKey(balance.getAssetID()))
+                                    {
+                                        value=map.get(balance.getAssetID());
+                                    }
+                                    if(balance.getQty() != null)
+                                    {
+                                        value=value.add(balance.getQty());
+                                    }
+                                    if(value.compareTo(BigInteger.ZERO)>0)
+                                    {
+                                        map.put(balance.getAssetID(),value);
+                                    }
+                                    break;
+                            }
+                        }
+                        balance=iter.next();
+                    }
+                    
+                }                        
+            }
+
+            return map;    
+        }
+
+        /**
+         * Return asset quantities received by the wallet in transaction
+         * @param tx transaction
+         * @return AssetID -> Quantity map
+         */
+        
+        public Map<Integer, BigInteger> getAssetsSentToMe(Transaction tx)        
+        {
+            return getAssetsQuantities(tx.getOutputs());
+        }
+
+        /**
+         * Return asset quantities send by the wallet in transaction
+         * @param tx transaction
+         * @return AssetID -> Quantity map
+         */
+        
+        public Map<Integer, BigInteger> getAssetsSentFromMe(Transaction tx)        
+        {
+            LinkedList <TransactionOutput> outputs=new LinkedList <TransactionOutput>();
+            
+            for(TransactionInput input : tx.getInputs())
+            {
+                if(input.getConnectedOutput() != null)
+                {
+                    outputs.add(input.getConnectedOutput());
+                }
+            }
+            
+            return getAssetsQuantities(outputs);
+        }
+
+        /**
+         * Calculate input balances of transactions for output balances sestimation
+         * @param tx Transaction 
+         * @return map AssetID->array of quantities
+         */
+        
+        public Map<Integer, long []> getInputAssetBalances(Transaction tx)        
+        {
+            HashMap<Integer,long []> inputBalances=new HashMap<Integer,long []>();
+            
+            int size=tx.getInputs().size();
+            int count=0;
+            
+            long [] btcs=new long[size];
+            for(int i=0;i<size;i++)
+            {
+                btcs[i]=0;
+            }
+            inputBalances.put(0, btcs);          
+            
+            for(TransactionInput input : tx.getInputs())
+            {
+                TransactionOutput output=input.getConnectedOutput();
+                if(output == null)
+                {
+                    return null;
+                }
+
+                inputBalances.get(0)[count]=output.getValue().longValue();
+                
+                CSBalanceDatabase.CSBalanceIterator iter=balanceDB.getTxOutBalances(new CSTransactionOutput(output.getParentTransaction(), output.getIndex()));
+
+                CSBalance balance=iter.next();
+                while(balance != null)
+                {
+                    int assetID=balance.getAssetID();
+                    if(assetID > 0)
+                    {
+                        if(!inputBalances.containsKey(assetID))
+                        {
+                            long [] qtys=new long[size];
+                            for(int i=0;i<size;i++)
+                            {
+                                qtys[i]=0;
+                            }
+                            inputBalances.put(assetID, qtys);                            
+                        }
+                        if(balance.getQty() != null)
+                        {
+                            inputBalances.get(assetID)[count]=balance.getQty().longValue();
+                        }
+                        else
+                        {
+                            inputBalances.get(assetID)[count]=-1;
+                        }
+                    }
+                    balance=iter.next();
+                }
+                count++;
+            }
+            
+            count=0;
+            int [] assetsToRemove=new int[inputBalances.size()];
+            
+            for(Map.Entry<Integer,long []> entry : inputBalances.entrySet())
+            {
+                boolean removeIt=false;
+                for(long qty : entry.getValue())
+                {
+                    if(qty < 0)
+                    {
+                        removeIt=true;
+                    }
+                }
+                if(removeIt)
+                {
+                    assetsToRemove[count]=entry.getKey();
+                    count++;
+                }
+            }
+            
+            for(int i=0;i<count;i++)
+            {
+                inputBalances.remove(assetsToRemove[i]);
+            }
+            
+            return inputBalances;
+        }
+        
+        /**
+         * Returns all unspent txouts having non-zero valid value for given asset.
+         * @param AssetID
+         * @return TxOut -> Quantity map
+         */
+
+        public Map<CSTransactionOutput,BigInteger> getAllUnspentAssetTxOuts(int AssetID)
+        {
+            LinkedList<TransactionOutput> candidates = calculateAllSpendCandidates(true);
+
+            Map <CSTransactionOutput,BigInteger> map= new HashMap<CSTransactionOutput,BigInteger>();
+
+            if(AssetID > 0)
+            {
+                CSAsset asset=assetDB.getAsset(AssetID);
+
+/*                
+                if(asset.getAssetState() != CSAsset.CSAssetState.VALID)
+                {
+                    return map;
+                }
+*/
+                for(TransactionOutput output: candidates)
+                {
+                    CSTransactionOutput txOut=new CSTransactionOutput(output.getParentTransaction(), output.getIndex());
+                    CSBalance balance = balanceDB.getBalance(txOut,AssetID);
+                    if(balance != null)
+                    {
+                        if((balance.getState() == CSBalance.CSBalanceState.VALID) || (balance.getState() == CSBalance.CSBalanceState.SELF))
+                        {
+                            map.put(txOut, balance.getQty());
+                        }                
+                    }
+                }
+            }
+            else
+            {
+                for(TransactionOutput output: candidates)
+                {
+                    map.put(new CSTransactionOutput(output.getParentTransaction(), output.getIndex()),output.getValue());
+                }            
+            }
+
+            return map;
+        }
+
+        /**
+         * Returns the list of balances for specific txout, including BTC value (asset ID=0).
+         * @param TxOut
+         * @return AssetID -> CSBalance map
+         */    
+
+        public Map<Integer,CSBalance> getTxOutBalances(CSTransactionOutput TxOut)
+        {
+            Map <Integer,CSBalance> map= new HashMap<Integer,CSBalance>();
+
+            CSBalanceDatabase.CSBalanceIterator iter=balanceDB.getTxOutBalances(TxOut);
+
+            CSBalance balance=iter.next();
+            while(balance != null)
+            {
+                map.put(balance.getAssetID(), balance);
+                balance=iter.next();
+            }
+
+            return map;        
+        }
+
+        /**
+         * Retrieves asset by ID from the database.
+         * @param AssetID ID of the asset in the database
+         * @return CSAsset object or null if not found
+         */
+
+        public CSAsset getAsset(int AssetID)
+        {
+            if (assetDB==null) {
+                return null;
+            }
+            
+            return assetDB.getAsset(AssetID);
+        }
+
+        /**
+         * Inserts new asset into database.
+         * @param Asset Asset to insert
+         * @return stored Asset on success, null on failure
+         */
+
+        public CSAsset insertAsset(CSAsset Asset)
+        {
+            if (assetDB==null) {
+                return null;
+            }
+            
+            return assetDB.insertAsset(Asset);
+        }
+
+        /**
+         * Deletes asset from asset and balance databases
+         * @param Asset Asset to delete
+         * @return true on success, false on failure
+         */
+        
+        public boolean deleteAsset(CSAsset Asset)
+        {
+            if (assetDB==null) {
+                return false;
+            }
+            
+            if(Asset == null)
+            {
+                return false; 
+            }
+            
+            if(!assetDB.deleteAsset(Asset))
+            {
+                return false;
+            }
+            
+            
+            if(balanceDB != null)
+            {
+                balanceDB.deleteAsset(Asset.getAssetID());
+            }
+            
+            return true;
+        }
+        
+        /**
+         * Returns arrays of all Asset IDs in database
+         * @return Array of Asset IDs
+         */
+
+        public int[] getAssetIDs() 
+        {
+            if (assetDB == null){
+                return new int[0];                
+            }
+            
+            return assetDB.getAssetIDs();
+        }    
+
+        /**
+         * Validates all assets in the database.
+         * @param pg PeerGroup
+         */
+
+        public void validateAllAssets(PeerGroup pg)
+        {
+            if (assetDB == null){ 
+                return;
+            }
+            
+            assetDB.validateAssets(pg);        
+        }
+
+        /**
+         * Refreshes and validates info for given asset.
+         * @param AssetID Asset ID in database
+         * @param pg PeerGroup
+         */
+
+        public void validateAsset(int AssetID,PeerGroup pg)
+        {
+            if (assetDB==null) {
+                return;                
+            }
+            
+            assetDB.refreshAsset(AssetID, pg);
+        }    
+
+        private Map<String,Integer> getTxDepthMap()
+        {
+            Map <String,Integer> map= new HashMap<String,Integer>();
+            
+            Set<Transaction> txs=getTransactions(true);
+
+            for(Transaction tx : txs)
+            {
+                TransactionConfidence conf = tx.getConfidence();
+                
+                if (conf.getConfidenceType() == TransactionConfidence.ConfidenceType.BUILDING)
+                {
+                    map.put(tx.getHashAsString(), lastBlockSeenHeight-conf.getAppearedAtChainHeight());
+                }
+            }
+            
+            return map;
+        }
+        
+        /**
+         * Tries to calculate balances for all assets using tracking servers.
+         * @return true on success, false on failure
+         */
+
+        public boolean calculateBalances()
+        {
+            if (balanceDB==null) {
+                return false;
+            }
+            
+            return balanceDB.calculateBalances(getTxDepthMap());
+        }    
+
+        /**
+         * Sets refresh flag for all balances for given TxOut.  
+         * @param TxOut TxOut to refresh
+         * @return  true on success, false on failure
+         */
+
+        public boolean setNeedsCalculateBalances(CSTransactionOutput TxOut)
+        {
+            if (balanceDB==null) {
+                return false;
+            }
+            
+            return balanceDB.refreshTxOut(TxOut);
+        }
+
+        /**
+         * Sets refresh flag for  all balances for given asset.
+         * @param AssetID asset ID in database
+         * @return  true on success, false on failure
+         */
+
+        public boolean setNeedsCalculateBalances(int AssetID)
+        {
+            if (balanceDB == null) {
+                return false;
+            }
+            
+            return balanceDB.refreshAsset(AssetID);
+        }
+
+        /**
+         * Sets refresh flag for  all balances using tracking servers.
+         * @return  true on success, false on failure
+         */
+
+        public boolean setNeedsCalculateBalances()
+        {        
+            if (balanceDB == null) {
+                return false;
+            }
+            
+            return balanceDB.refreshAll();
+        }
+
+        private void clearAssetRefs(int MinHeight,int MaxHeight)
+        {
+            if (assetDB == null) {
+                return;
+            }
+            
+            int [] assetIDs=assetDB.getAssetIDs();
+
+            for(int assetID: assetIDs)
+            {
+                CSAsset asset=assetDB.getAsset(assetID);
+                if(asset.getAssetReference() != null)
+                {
+                    long assetHeight=asset.getAssetReference().getBlockNum();
+                    if((assetHeight >= MinHeight) && (assetHeight<=MaxHeight))
+                    {
+                        assetDB.clearAssetReference(asset);
+                    }
+                }
+            }        
+        }
+        
+        
+        private void addToRecentSends(Transaction tx)
+        {
+            for(TransactionInput input : tx.getInputs())                        // Checking this transaction is actiual send
+            {
+                if (!tx.isTransactionInputMine(input, wallet)) 
+                {
+                    return;
+                }
+                
+            }
+            
+            long timeNow=new Date().getTime();
+            
+            Map <String,Long> newMap=new HashMap<String,Long>();          // Cleaning up old transactions
+            for (Map.Entry <String,Long> entry : mapRecentSends.entrySet()) 
+            {
+                if(entry.getValue()>timeNow-2*86400)
+                {
+                    newMap.put(entry.getKey(), entry.getValue());
+                }
+            }            
+
+            log.info("Sent tx " + tx.getHashAsString() + " is added to recent send list");
+            newMap.put(tx.getHashAsString(), timeNow);
+            mapRecentSends=newMap;            
+        }
+        
+        public boolean isReplayToRecentSend(Transaction tx)
+        {
+            log.info("Checking new tx " + tx.getHashAsString() + " if it is replay to recent send");
+            if(tx.getInputs().isEmpty())
+            {
+                return false;
+            }
+            for(TransactionInput input : tx.getInputs())                        
+            {
+                if(!mapRecentSends.containsKey(input.getOutpoint().getHash().toString()))
+                {
+                    return false;
+                }
+            }            
+            log.info("New tx " + tx.getHashAsString() + " is a replay to recent send");
+            return true;
+        }
+        
+    }
+    
+    public boolean initCSDatabases(String FilePrefix)
+    {        
+        return CS.initCSDatabases(FilePrefix);
+    }
+
+
+    public String test()
+    {   
+        CS.log.debug("Wallet test started");
+
+        String s1;
+        String s="";
+        
+        
+        s+="\n";
+/*        
+        s+="Asset totals (spendable)\n\n";
+        
+        Map <Integer,BigInteger> mapQtys=CS.getAllUnspentAssetQuantities(true);                
+
+        for (Map.Entry<Integer, BigInteger> entry : mapQtys.entrySet()) 
+        {
+            s+="Qty Asset " + entry.getKey() + ": " + entry.getValue() + "\n";
+        }        
+        
+        s+="\n";
+        
+        s+="Asset totals (all)\n\n";
+        
+        mapQtys=CS.getAllUnspentAssetQuantities(false);                
+
+        for (Map.Entry<Integer, BigInteger> entry : mapQtys.entrySet()) 
+        {
+            s+="Qty Asset " + entry.getKey() + ": " + entry.getValue() + "\n";
+        }        
+*/      
+  
+        s+="Asset totals \n\n";
+        
+        Map <Integer,CoinSpark.AssetBalance> mapQtys=CS.getAllAssetBalances();                
+
+        for (Map.Entry<Integer, CoinSpark.AssetBalance> entry : mapQtys.entrySet()) 
+        {
+            if(CS.assetDB.getAsset(entry.getKey()) != null)
+            {
+                s+="Qty Asset " + entry.getKey() + " (" + CS.assetDB.getAsset(entry.getKey()).getAssetReference().encode() + "): ";
+            }
+            else
+            {
+                s+="Qty Asset " + entry.getKey() + " (" +"No asset ref" + "): ";                
+            }
+            s+=entry.getValue().total;
+            if(entry.getValue().updatingNow)
+            {
+                s+="+...";
+            }
+            if(entry.getValue().total.compareTo(entry.getValue().spendable) != 0)
+            {
+                s+=" (spendable " + entry.getValue().spendable + ")";
+            }
+            s+="\n";
+        }        
+        
+        s+="\n";
+
+        s1=s;
+        
+        s+="Asset txouts\n\n";
+                
+        Map <String,CSTransactionOutput> mapTxOuts= new HashMap<String,CSTransactionOutput>();
+        
+        for (Map.Entry<Integer, CoinSpark.AssetBalance> entryAsset : mapQtys.entrySet()) 
+        {            
+            Map<CSTransactionOutput,BigInteger> mapAssetTxOuts=CS.getAllUnspentAssetTxOuts(entryAsset.getKey());
+            s+="Asset " + entryAsset.getKey() + ": " + entryAsset.getValue().total + "\n";
+
+            for (Map.Entry<CSTransactionOutput, BigInteger> entry : mapAssetTxOuts.entrySet()) 
+            {
+                s+="TxOut " + entry.getKey() + ": " + entry.getValue() + "\n";
+                mapTxOuts.put(entry.getKey().toString(), entry.getKey());
+            }        
+
+            s+="\n";
+        }
+        
+        s+="\n";
+        
+        
+        s+="TxOuts\n\n";
+        
+        for (Map.Entry<String, CSTransactionOutput> entryTxOut : mapTxOuts.entrySet()) 
+        {            
+            Map<Integer,CSBalance> mapBalances=CS.getTxOutBalances(entryTxOut.getValue());
+            s+="TxOut " + entryTxOut.getKey() + "\n";
+
+            for (Map.Entry<Integer, CSBalance> entry : mapBalances.entrySet()) 
+            {
+                s+="Asset " + entry.getKey() + ": " + entry.getValue() + "\n";
+            }        
+
+            s+="\n";
+        }
+        
+        s+="Transactions:\n\n";
+        
+        Set<Transaction> txs=getTransactions(true);
+        
+        for(Transaction tx : txs)
+        {
+            s+="Tx " + tx.getHashAsString() + "\n";
+            
+            s+="Sent:\n";
+            Map <Integer,BigInteger> mapTxQtysFrom=CS.getAssetsSentFromMe(tx);                
+
+            for (Map.Entry<Integer, BigInteger> entry : mapTxQtysFrom.entrySet()) 
+            {
+                s+="Qty Asset " + entry.getKey() + ": " + entry.getValue() + "\n";
+            }        
+            
+            s+="Received:\n";
+            Map <Integer,BigInteger> mapTxQtysTo=CS.getAssetsSentToMe(tx);                
+
+            for (Map.Entry<Integer, BigInteger> entry : mapTxQtysTo.entrySet()) 
+            {
+                s+="Qty Asset " + entry.getKey() + ": " + entry.getValue() + "\n";
+            }        
+
+            s+="\n";
+            
+        }
+
+        
+        s+="\n";
+        
+        s+="Transaction depths\n\n";
+        
+        Map <String,Integer> mapDepths= CS.getTxDepthMap();
+        
+        for (Map.Entry<String, Integer> entry : mapDepths.entrySet()) 
+        {
+            s+="Tx  " + entry.getKey() + ": " + entry.getValue() + "\n";
+        }        
+        
+        
+        
+/*        
+        try {
+            SendRequest req=SendRequest.to(new Address(params, "n1RQsYiWMWNH3XuEkuimVrzBHa7NLbtNrU"),new BigInteger("10000"),6, new BigInteger("10000"),1);
+            completeTx(req, true);
+        } catch (AddressFormatException ex) {
+            java.util.logging.Logger.getLogger(Wallet.class.getName()).log(Level.SEVERE, null, ex);
+                
+        } catch (InsufficientMoneyException ex) {
+            java.util.logging.Logger.getLogger(Wallet.class.getName()).log(Level.SEVERE, null, ex);
+        }
+  */    
+
+/*        
+        s+="\n";
+        
+        s+="Wallet migration\n\n";
+        
+        Address sendAddressObject;
+        try {
+            sendAddressObject = getChangeAddress();
+            SendRequest sendRequest = SendRequest.emptyWallet(sendAddressObject);
+            sendRequest.ensureMinRequiredFee = true;
+            sendRequest.fee = BigInteger.ZERO;
+            completeTx(sendRequest, false);
+
+            s+="Wallet can be successfully migrated with fee: " + sendRequest.fee + "\n";
+            s+="The following assets were transferred:\n\n";
+            
+            Map<Integer,BigInteger> mapTransferred = CS.getAssetTransferValues(sendRequest,true);
+            
+            for (Map.Entry<Integer,BigInteger> entry : mapTransferred.entrySet()) 
+            {
+                s+="Asset " + entry.getKey() + ": " + entry.getValue() + "\n";
+            }            
+            
+            CSTransactionAssets txAssets=new CSTransactionAssets(sendRequest.tx);
+            
+            s+="\n";
+            s+="Transfer list: \n\n";
+            
+            if(txAssets.getTransfers() != null)
+            {
+                s+=txAssets.getTransfers().toString() + "\n";
+            }
+            else
+            {
+                s+="Empty!!!\n";
+            }
+            
+        } catch (InsufficientMoneyException ex) {
+            java.util.logging.Logger.getLogger(Wallet.class.getName()).log(Level.SEVERE, null, ex);
+        }
+*/
+        s+="\n";
+        
+        
+        CS.log.debug("Wallet test completed");
+        return s;
+    }
+    
+/* CSPK-mike END */                
+    
+    
+    
 }

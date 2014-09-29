@@ -67,12 +67,19 @@ public class Transaction extends ChildMessage implements Serializable, IsMultiBi
      */
     public static final BigInteger REFERENCE_DEFAULT_MIN_TX_FEE = BigInteger.valueOf(10000);
 
+/* CSPK-mike START */    
+    /**
+     * Reference relay fee. In Bitcoin 0.9 it is 1000 Satoshis. This value is used in anti-dust calculation
+     */
+    public static final BigInteger REFERENCE_DEFAULT_MIN_RELAY_TX_FEE = BigInteger.valueOf(1000);
+/* CSPK-mike END */    
+    
     /**
      * Any standard (ie pay-to-address) output smaller than this value (in satoshis) will most likely be rejected by the network.
      * This is calculated by assuming a standard output will be 34 bytes, and then using the formula used in
      * {@link TransactionOutput#getMinNonDustValue(BigInteger)}. Currently it's 5460 satoshis.
      */
-    public static final BigInteger MIN_NONDUST_OUTPUT = BigInteger.valueOf(5460);
+    public static final BigInteger MIN_NONDUST_OUTPUT = BigInteger.valueOf(546);// CSPK-Mike changed from 5460 for 0.9
 
     // These are serialized in both bitcoin and java serialization.
     private long version;
@@ -215,6 +222,7 @@ public class Transaction extends ChildMessage implements Serializable, IsMultiBi
      * Calculates the sum of the outputs that are sending coins to a key in the wallet. The flag controls whether to
      * include spent outputs or not.
      */
+    
     BigInteger getValueSentToMe(Wallet wallet, boolean includeSpent) {
         maybeParse();
         // This is tested in WalletTest.
@@ -1398,4 +1406,5 @@ public class Transaction extends ChildMessage implements Serializable, IsMultiBi
     public void setPurpose(Purpose purpose) {
         this.purpose = purpose;
     }
+
 }

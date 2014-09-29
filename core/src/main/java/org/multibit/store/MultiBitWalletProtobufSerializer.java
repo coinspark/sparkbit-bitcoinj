@@ -28,8 +28,10 @@ import com.google.bitcoin.wallet.WalletTransaction;
 import com.google.common.collect.Lists;
 import com.google.protobuf.ByteString;
 import com.google.protobuf.TextFormat;
+
 import org.bitcoinj.wallet.Protos;
 import org.bitcoinj.wallet.Protos.Wallet.EncryptionType;
+
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -39,6 +41,7 @@ import java.io.OutputStream;
 import java.math.BigInteger;
 import java.net.InetAddress;
 import java.net.UnknownHostException;
+import java.util.Arrays;
 import java.util.Date;
 import java.util.List;
 import java.util.ListIterator;
@@ -635,6 +638,7 @@ public class MultiBitWalletProtobufSerializer extends WalletProtobufSerializer {
                 log.debug("Wallet contained duplicate transaction %s, using the second and newer one", byteStringToHash(txProto.getHash()));
             }
         }
+
         txMap.put(txProto.getHash(), tx);
     }
 

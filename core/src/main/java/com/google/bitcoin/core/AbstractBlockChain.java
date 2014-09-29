@@ -35,6 +35,7 @@ import java.util.concurrent.Executor;
 import java.util.concurrent.locks.ReentrantLock;
 
 import static com.google.common.base.Preconditions.*;
+import org.coinspark.core.CSBlockHeaderStore;
 
 /**
  * <p>An AbstractBlockChain holds a series of {@link Block} objects, links them together, and knows how to verify that
@@ -442,6 +443,10 @@ public abstract class AbstractBlockChain {
             StoredBlock newStoredBlock = addToBlockStore(storedPrev,
                     block.transactions == null ? block : block.cloneAsHeader(), txOutChanges);
             setChainHead(newStoredBlock);
+            
+/* CSPK-mike START */           
+            addToHeaderStore(newStoredBlock);            
+/* CSPK-mike END */            
 
             log.debug("Chain is now {} blocks high, running listeners", newStoredBlock.getHeight());
             informListenersForNewBlock(block, NewBlockType.BEST_CHAIN, filteredTxHashList, filteredTxn, newStoredBlock);
@@ -639,10 +644,18 @@ public abstract class AbstractBlockChain {
                 else
                     txOutChanges = connectTransactions(newChainHead.getHeight(), block);
                 storedNewHead = addToBlockStore(storedNewHead, cursor.getHeader(), txOutChanges);
+                
+/* CSPK-mike START */            
+                addToHeaderStore(storedNewHead);
+/* CSPK-mike END */            
+                
             }
         } else {
             // (Finally) write block to block store
             storedNewHead = addToBlockStore(storedPrev, newChainHead.getHeader());
+/* CSPK-mike START */            
+            addToHeaderStore(storedNewHead);
+/* CSPK-mike END */            
         }
         // Now inform the listeners. This is necessary so the set of currently active transactions (that we can spend)
         // can be updated to take into account the re-organize. We might also have received new coins we didn't have
@@ -1050,4 +1063,52 @@ public abstract class AbstractBlockChain {
         falsePositiveTrend = 0;
         previousFalsePositiveRate = 0;
     }
+    
+    
+/* CSPK-mike START */            
+    
+    protected CSBlockHeaderStore headerStore;
+    
+    /**
+     * Adds stored block to full blockchain header store.
+     * Block hashes are used when retrieving genesis information for Asset reference.            
+     */
+    
+    protected boolean addToHeaderStore(StoredBlock storedBlock){
+        
+        if(headerStore != null)
+        {
+            return headerStore.put(storedBlock);
+        }        
+        return true;
+    }
+    
+    /**
+     * Returns hash of the block in main chain by given height.
+     * Returns Sha256Hash.ZERO_HASH if not found
+     */
+    
+    public Sha256Hash getHash(int height)
+    {
+        if(headerStore != null)
+        {
+            return headerStore.getHash(height);
+        }        
+        return Sha256Hash.ZERO_HASH;
+    }
+    
+    /**
+     * Sets Block header store location.
+     * @param FilePrefix
+     * @return 
+     */
+    
+    public String setBlockHeaderStore(String FilePrefix)
+    {
+        headerStore=new CSBlockHeaderStore(params, FilePrefix);
+        return headerStore.getFileName();
+    }
+    
+    /* CSPK-mike END*/
+    
 }

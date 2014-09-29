@@ -43,6 +43,8 @@ import java.util.concurrent.locks.ReentrantLock;
 
 import static com.google.common.base.Preconditions.checkNotNull;
 import static com.google.common.base.Preconditions.checkState;
+import java.io.IOException;
+import java.util.logging.Level;
 
 /**
  * <p>Runs a set of connections to the P2P network, brings up connections to replace disconnected nodes and manages
@@ -99,7 +101,7 @@ public class PeerGroup extends AbstractExecutionThreadService implements Transac
     // until we reach this count.
     @GuardedBy("lock") private int maxConnections;
     // Minimum protocol version we will allow ourselves to connect to: require Bloom filtering.
-    private volatile int vMinRequiredProtocolVersion = FilteredBlock.MIN_PROTOCOL_VERSION;
+    private volatile int vMinRequiredProtocolVersion = 70002;//FilteredBlock.MIN_PROTOCOL_VERSION;
 
     // Runs a background thread that we use for scheduling pings to our peers, so we can measure their performance
     // and network latency. We ping peers every pingIntervalMsec milliseconds.
@@ -723,9 +725,16 @@ public class PeerGroup extends AbstractExecutionThreadService implements Transac
     public void addWallet(Wallet wallet) {
         lock.lock();
         try {
+        log.info("!!!! PeerGroup.addWallet Peers " + this.peers.size());        
             checkNotNull(wallet);
             checkState(!wallets.contains(wallet));
             wallets.add(wallet);
+/* CSPK-mike START */            
+            for(Peer peer : peers)
+            {
+                peer.addWallet(wallet);
+            }
+/* CSPK-mike END */            
             wallet.setTransactionBroadcaster(this);
             wallet.addEventListener(walletEventListener, Threading.SAME_THREAD);
             addPeerFilterProvider(wallet);
@@ -1490,4 +1499,63 @@ public class PeerGroup extends AbstractExecutionThreadService implements Transac
             lock.unlock();
         }
     }
+    
+    
+    /**
+     * Returns Block from the network using given hash
+     * Returns null if block is not found
+     */
+    
+    public Block getBlock(Sha256Hash blockHash)
+    {
+        if(peers.isEmpty())
+        {
+            log.debug("Cannot find block - peer list is empty");            
+            return null;
+        }
+
+        Peer peer=peers.get(0);
+        Future<Block> future = null;
+        
+        future = peer.getBlock(blockHash);
+        
+        Block block = null;
+        try {
+            block = future.get();
+        } catch (InterruptedException ex) {
+            java.util.logging.Logger.getLogger(PeerGroup.class.getName()).log(Level.SEVERE, null, ex);
+        } catch (ExecutionException ex) {
+            java.util.logging.Logger.getLogger(PeerGroup.class.getName()).log(Level.SEVERE, null, ex);
+        }
+        try {
+            if(block != null)
+            {
+                block.parse();
+            }
+        } catch (ProtocolException ex) {
+            java.util.logging.Logger.getLogger(PeerGroup.class.getName()).log(Level.SEVERE, null, ex);
+        }
+        return block;
+    }
+    
+    /**
+     * Returns Block from the network using given height
+     * Uses chain block hash store. If hash store is not set always return null 
+     * Returns null if block is not found
+     */
+    
+    public Block getBlock(int height)
+    {        
+        Sha256Hash blockHash = chain.getHash(height);
+    
+        if(blockHash.equals(Sha256Hash.ZERO_HASH))
+        {
+            log.debug("Cannot find hash of block " + height);
+            return null;            
+        }
+        
+        return getBlock(blockHash);
+    }
+    
+    
 }

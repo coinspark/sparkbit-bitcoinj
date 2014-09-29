@@ -1076,4 +1076,78 @@ public class Block extends Message {
     boolean isTransactionBytesValid() {
         return transactionBytesValid;
     }
+    
+    /* CSPK-mike START */
+    
+    /**
+     * Returns Transaction by given offset in the block.
+     * Returns null if not found
+     */
+    
+    public Transaction getTransactionByOffset(int txoffset){
+        
+        int pos=HEADER_SIZE+1;
+        if (transactions != null) 
+        {
+            if(transactions.size()>=0xFD)
+            {
+                pos+=2;
+            }
+            if(transactions.size()>0xFFFF)
+            {
+                pos+=2;
+            }
+        }
+        if (transactions != null) {
+            for (Transaction tx : transactions) {
+                if(pos>txoffset)
+                {
+                    // Offset not found
+                    return null;
+                }
+                if(pos==txoffset)
+                {
+                    return tx;
+                }
+                pos+=tx.length;
+            }
+        }
+        
+        return null;        
+    }
+    
+    /**
+     * Returns Transaction offset by hash. 
+     * Returns 0 if not found
+     */
+    
+    public int getOffsetByTransaction(Sha256Hash hash){
+        
+        int pos=HEADER_SIZE+1;
+        if (transactions != null) 
+        {
+            if(transactions.size()>=0xFD)
+            {
+                pos+=2;
+            }
+            if(transactions.size()>0xFFFF)
+            {
+                pos+=2;
+            }
+        }        
+        if (transactions != null) {
+            for (Transaction tx : transactions) {
+                if(hash.equals(tx.getHash()))
+                {
+                    return pos;
+                }
+                pos+=tx.length;
+            }
+        }
+        
+        return 0;        
+    }
+    
+    /* CSPK-mike END */
+    
 }
