@@ -124,15 +124,38 @@ public class CSBlockHeaderStore {
         
         if(fileSize < block.getHeight()*FULL_BLOCK_HASHES_SIZE)
         {
-            log.error("Cannot store block, header file too small: block " + block.getHeight() + ", file size " + fileSize);                
-            return false;            
+            log.error("Header file too small: block " + block.getHeight() + ", file size " + fileSize);                
+            byte [] nullhash=new byte [32];
+            for(int i=0;i<32;i++)
+            {
+                nullhash[i]=0;
+            }            
+            try {
+                aFile.seek(fileSize);
+            } catch (IOException ex) {
+                log.error("Cannot set headers file position " + ex.getClass().getName() + " " + ex.getMessage());                
+                return false;
+            }
+            while(fileSize < block.getHeight()*FULL_BLOCK_HASHES_SIZE)
+            {
+                try {
+                    aFile.write(nullhash);
+                } catch (IOException ex) {
+                    log.error("Cannot add empty block to header file " + ex.getClass().getName() + " " + ex.getMessage());                
+                    return false;
+                }         
+                fileSize+=32;
+            }
+//            return false;            
         }
-        
-        try {
-            aFile.seek(block.getHeight()*FULL_BLOCK_HASHES_SIZE);
-        } catch (IOException ex) {
-            log.error("Cannot set headers file position " + ex.getClass().getName() + " " + ex.getMessage());                
-            return false;
+        else
+        {
+            try {
+                aFile.seek(block.getHeight()*FULL_BLOCK_HASHES_SIZE);
+            } catch (IOException ex) {
+                log.error("Cannot set headers file position " + ex.getClass().getName() + " " + ex.getMessage());                
+                return false;
+            }
         }
         
         try {
