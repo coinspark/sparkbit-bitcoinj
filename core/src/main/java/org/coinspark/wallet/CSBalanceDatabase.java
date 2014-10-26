@@ -1497,7 +1497,7 @@ public class CSBalanceDatabase {
                                                     }
                                                     else
                                                     {
-                                                        if(jentry.get("qty").getAsInt()>0)
+                                                        if(jentry.get("qty").getAsLong()>0)
                                                         {
                                                             bu.balance.setQty(new BigInteger(jentry.get("qty").getAsString()), CSBalance.CSBalanceState.VALID);
                                                             CSEventBus.INSTANCE.postAsyncEvent(CSEventType.BALANCE_VALID,     
