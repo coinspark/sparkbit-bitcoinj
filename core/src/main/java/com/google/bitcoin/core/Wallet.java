@@ -5595,7 +5595,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
             }
             
             int [] assetIDs=assetDB.getAssetIDs();
-
+	    if (assetIDs==null) return;
             for(int assetID: assetIDs)
             {
                 CSAsset asset=assetDB.getAsset(assetID);
