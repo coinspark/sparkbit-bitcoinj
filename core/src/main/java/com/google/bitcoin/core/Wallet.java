@@ -5599,12 +5599,15 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
             for(int assetID: assetIDs)
             {
                 CSAsset asset=assetDB.getAsset(assetID);
-                if(asset.getAssetReference() != null)
+                if(asset != null)
                 {
-                    long assetHeight=asset.getAssetReference().getBlockNum();
-                    if((assetHeight >= MinHeight) && (assetHeight<=MaxHeight))
+                    if(asset.getAssetReference() != null)
                     {
-                        assetDB.clearAssetReference(asset);
+                        long assetHeight=asset.getAssetReference().getBlockNum();
+                        if((assetHeight >= MinHeight) && (assetHeight<=MaxHeight))
+                        {
+                            assetDB.clearAssetReference(asset);
+                        }
                     }
                 }
             }        
