@@ -1962,14 +1962,6 @@ public class CSBalanceDatabase {
         
         calculationInProgress=true;
         
-        log.error("In");
-        try {
-            Thread.sleep(4000);
-        } catch (InterruptedException ex) {
-            java.util.logging.Logger.getLogger(CSBalanceDatabase.class.getName()).log(Level.SEVERE, null, ex);
-        }
-        log.error("Out");
-        
         List<CSBalanceDatabase.CSBalanceUpdate> balanceUpdates;//= new ArrayList<CSBalanceDatabase.CSBalanceUpdate>();        
 
         checkDuplicates();
