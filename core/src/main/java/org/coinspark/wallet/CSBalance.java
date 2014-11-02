@@ -38,6 +38,7 @@ public class CSBalance {
         NEVERCHECKED,   // Balance not 
         UNKNOWN,        // Tracking server doesn't know about this txout or don't track this color
         SELF,           // This balance is unconfirmed, but the source of this value is our wallet, so we can be quite confident in tis value
+        CALCULATED,     // This balance is unconfirmed, but we've been able to calculate it using input values
         REFRESH,        // Balance should be checked (manually set)
         SPENT,          // TxOut is spent
         VALID,          // Balance value returned and is not 0

@@ -24,6 +24,10 @@
 package org.coinspark.wallet;
 
 import com.google.bitcoin.core.Sha256Hash;
+import com.google.bitcoin.core.Transaction;
+import com.google.bitcoin.core.TransactionInput;
+import com.google.bitcoin.core.TransactionOutPoint;
+import com.google.bitcoin.core.TransactionOutput;
 import com.google.bitcoin.utils.Threading;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
@@ -45,8 +49,10 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.locks.ReentrantLock;
+import java.util.logging.Level;
 import org.coinspark.core.CSLogger;
 import org.coinspark.core.CSUtils;
+import org.coinspark.protocol.CoinSparkBase;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.spongycastle.util.Arrays;
@@ -102,6 +108,7 @@ public class CSBalanceDatabase {
                 case 6: balanceState= CSBalance.CSBalanceState.REFRESH;qty=CSUtils.littleEndianToBigInteger(Serialized, off);qtyChecked=null;break;
                 case 7: balanceState= CSBalance.CSBalanceState.DELETED;qtyChecked=null;break;
                 case 8: balanceState= CSBalance.CSBalanceState.SELF;qty=CSUtils.littleEndianToBigInteger(Serialized, off);break;
+                case 9: balanceState= CSBalance.CSBalanceState.CALCULATED;qty=CSUtils.littleEndianToBigInteger(Serialized, off);break;
             }
         }
         
@@ -112,6 +119,7 @@ public class CSBalanceDatabase {
             {
                 case UNKNOWN:
                 case SELF:
+                case CALCULATED:
                 case SPENT:
                     qtyChecked=new Date();
                     qtyFailures++;
@@ -156,6 +164,7 @@ public class CSBalanceDatabase {
                 case SPENT:        balanceCode=3;storedQty=qty;break;
                 case UNKNOWN:      balanceCode=2;if(qty != null){storedQty=qty;};break;
                 case SELF:         balanceCode=8;if(qty != null){storedQty=qty;};break;
+                case CALCULATED:   balanceCode=9;if(qty != null){storedQty=qty;};break;
                 case VALID:        balanceCode=1;storedQty=qty; break;
                 case ZERO:         balanceCode=0;break;
                 case DELETED:      balanceCode=7;break;
@@ -209,7 +218,14 @@ public class CSBalanceDatabase {
             mapSize=AssetIDs.length+1;
             
             map=new ConcurrentHashMap<Integer, CSBalanceDatabase.CSBalanceEntry>(mapSize, 0.9f, 1);
-            map.put(0, new CSBalanceDatabase.CSBalanceEntry().setQty(balances.get(0), CSBalance.CSBalanceState.VALID));
+            if(balances.containsKey(0))
+            {
+                map.put(0, new CSBalanceDatabase.CSBalanceEntry().setQty(balances.get(0), CSBalance.CSBalanceState.VALID));
+            }
+            else
+            {
+                map.put(0, new CSBalanceDatabase.CSBalanceEntry());
+            }
             for(int i=0;i<AssetIDs.length;i++)
             {
                 if(AssetIDs[i]>0)
@@ -277,7 +293,8 @@ public class CSBalanceDatabase {
     private HashMap<String, CSBalanceDatabase.CSTxOutEntry> map=new HashMap<String, CSBalanceDatabase.CSTxOutEntry>(16, 0.9f);
     private List<Integer> newAssets= new ArrayList<Integer>();        
     private List<Integer> deletedAssets= new ArrayList<Integer>();        
-    private List<CSBalanceDatabase.CSBalanceUpdate> balanceUpdates= new ArrayList<CSBalanceDatabase.CSBalanceUpdate>();        
+    private List<CSBalanceTransaction> trackedTransactions= new ArrayList<CSBalanceTransaction>();        
+//    private List<CSBalanceDatabase.CSBalanceUpdate> balanceUpdates= new ArrayList<CSBalanceDatabase.CSBalanceUpdate>();        
     
     public CSBalanceDatabase() {}
     
@@ -902,25 +919,285 @@ public class CSBalanceDatabase {
         
     }
     
+    private class CSBalanceTxTransfers
+    {
+        public CSBalanceUpdate [] inputs;
+        public CSBalanceUpdate [] outputs;
+        public boolean valid;
+        
+        public CSBalanceTxTransfers(int AssetID,Transaction Tx)
+        {
+            valid=true;
+            inputs=new CSBalanceUpdate[Tx.getInputs().size()];
+            int count=0;
+            for(TransactionInput input : Tx.getInputs())
+            {
+                TransactionOutPoint outPoint=input.getOutpoint();
+                if(outPoint != null)
+                {
+                    CSBalanceEntry be=new CSBalanceEntry();
+                    inputs[count]=new CSBalanceUpdate(new CSTransactionOutput(outPoint.getHash(), (int)outPoint.getIndex()), AssetID, new CSBalanceEntry(), -1, null);
+                }
+                else
+                {
+                    valid=false;
+                }
+                count++;
+            }
+                    
+            outputs=new CSBalanceUpdate[Tx.getOutputs().size()];
+            for(int i=0;i<Tx.getOutputs().size();i++)
+            {
+                outputs[i]=null;
+            }
+        }
+                
+    }            
+    
+    protected void addTrackedTransaction(Transaction Tx)
+    {
+        boolean found=false;
+        for(CSBalanceTransaction balanceTransaction : trackedTransactions)
+        {
+            if(balanceTransaction.tx.getHash().equals(Tx.getHash()))
+            {
+                found=true;
+            }
+        }
+        if(!found)
+        {
+            trackedTransactions.add(new CSBalanceTransaction(Tx));
+        }
+    }
+    
+    private class CSBalanceTransaction
+    {
+        public Transaction tx;
+        public Date entryTime;
+        public boolean deleteFlag;        
+        Map<Integer,CSBalanceTxTransfers> assetsToTrack=null;
+                
+        public CSBalanceTransaction() {}
+        
+        public CSBalanceTransaction(Transaction Tx) 
+        {
+            tx=Tx;
+            deleteFlag=false;
+            entryTime=new Date();
+        }
+                
+                
+        public void addInputBalanceUpdates(List<CSBalanceDatabase.CSBalanceUpdate> balanceUpdates)
+        {
+            assetsToTrack= new HashMap<Integer,CSBalanceTxTransfers>();  
+            
+            for(int i=0;i<balanceUpdates.size();i++)
+            {
+                CSBalanceDatabase.CSBalanceUpdate bu=balanceUpdates.get(i);
+                switch(bu.balance.balanceState)
+                {
+                    case NEVERCHECKED:
+                    case UNKNOWN:
+                        if(bu.txOut.getTxID().equals(tx.getHash()))
+                        {
+                            CSAsset asset=assetDB.getAsset(bu.assetID);
+                            if((asset != null) && (asset.getAssetState() == CSAsset.CSAssetState.VALID) && (asset.getAssetReference() != null) && (asset.getAssetReference().isValid()))
+                            {
+                                if(!assetsToTrack.containsKey(bu.assetID))
+                                {
+                                    assetsToTrack.put(bu.assetID, new CSBalanceTxTransfers(bu.assetID,tx));
+                                }
+                                assetsToTrack.get(bu.assetID).outputs[bu.txOut.getIndex()]=bu;
+                            }
+                        }                
+                        break;
+                }
+            }    
+                        
+            deleteFlag=true;
+            
+            for (Map.Entry<Integer, CSBalanceTxTransfers> entryTransfers : assetsToTrack.entrySet()) 
+            {
+                CSBalanceTxTransfers transfers=entryTransfers.getValue();
+                if(transfers.valid)
+                {
+                    deleteFlag=false;
+                    for(int i=0;i<transfers.inputs.length;i++)
+                    {
+                        balanceUpdates.add(transfers.inputs[i]);
+                    }
+                }
+            }            
+        }
+        
+        public void applyInputBalances(List<CSBalanceDatabase.CSBalanceUpdate> balanceUpdates)
+        {
+            for (Map.Entry<Integer, CSBalanceTxTransfers> entryTransfers : assetsToTrack.entrySet()) 
+            {
+                CSAsset asset=assetDB.getAsset(entryTransfers.getKey());
+                CSBalanceTxTransfers balanceTransfers=entryTransfers.getValue();
+                if((asset == null) || (asset.getAssetState() != CSAsset.CSAssetState.VALID) || (asset.getAssetReference() == null) || (!asset.getAssetReference().isValid()))
+                {
+                   balanceTransfers.valid=false; 
+                }
+                if(balanceTransfers.valid)
+                {                    
+                    int countInputs=balanceTransfers.inputs.length;
+                    int countOutputs=balanceTransfers.outputs.length;
+                    long [] inputBalances=new long[countInputs];
+                    long [] outputBalances=new long[countOutputs];
+                    boolean [] outputsRegular=new boolean[countOutputs];
+                    
+                    long totalInput=0;
+                    long totalOutput=0;
+                    long [] outputsSatoshis=new long [countOutputs];
+                    
+                    for(int input_id=0;input_id<countInputs;input_id++)
+                    {
+                        CSBalanceUpdate bu=balanceTransfers.inputs[input_id];
+                        switch(bu.balance.balanceState)
+                        {
+                            case VALID:
+                            case ZERO:
+                            case SPENT:
+                                inputBalances[input_id]=bu.balance.qty.longValue();
+                                if(bu.qtyBTC != null)
+                                {
+                                    totalInput+=bu.qtyBTC.longValue();
+                                }
+                                else
+                                {
+                                    balanceTransfers.valid=false;
+                                }
+                                break;
+                            default:
+                                balanceTransfers.valid=false;
+                        }
+                    }
+
+                    int output_id=0;
+                    for (TransactionOutput output : tx.getOutputs())
+                    {
+                        outputBalances[output_id] = 0;
+                        outputsRegular[output_id] = CoinSparkBase.scriptIsRegular(output.getScriptBytes());
+                        long value=output.getValue().longValue();
+                        outputsSatoshis[output_id]=value;
+                        totalOutput+=value;
+                        output_id++;
+                    }
+                    
+                    long feeSatoshis=totalInput-totalOutput;
+                    
+                    CSTransactionAssets txAssets=new CSTransactionAssets(tx);
+                    
+                    if(balanceTransfers.valid)
+                    {
+                        if(txAssets.getGenesis() != null)
+                        {
+                            long validFeeSatoshis=txAssets.getGenesis().calcMinFee(outputsSatoshis, outputsRegular);
+                            if(feeSatoshis >= validFeeSatoshis)
+                            {
+                                outputBalances=txAssets.getGenesis().apply(outputsRegular);
+                            }
+                        }
+                        
+                        if(txAssets.getTransfers() != null)
+                        {
+                            long validFeeSatoshis=txAssets.getTransfers().calcMinFee(countInputs, outputsSatoshis, outputsRegular);
+                            if(feeSatoshis >= validFeeSatoshis)
+                            {
+                                outputBalances=txAssets.getTransfers().apply(asset.getAssetReference(), asset.getGenesis(), inputBalances,outputsRegular);
+                            }
+                            else
+                            {
+                                outputBalances=txAssets.getTransfers().applyNone(asset.getAssetReference(), asset.getGenesis(), inputBalances, outputsRegular);
+                            }
+                        }                        
+                        
+                        for(output_id=0;output_id<countOutputs;output_id++)
+                        {
+                            CSBalanceUpdate bu=balanceTransfers.outputs[output_id];
+                            if(bu != null)
+                            {
+                                switch(bu.balance.balanceState)
+                                {
+                                    case UNKNOWN:
+                                        if(outputBalances[output_id]>0)
+                                        {
+                                            bu.balance.setQty(BigInteger.valueOf(outputBalances[output_id]), CSBalance.CSBalanceState.CALCULATED);
+                                            CSEventBus.INSTANCE.postAsyncEvent(CSEventType.BALANCE_VALID,     
+                                                    new CSBalance(bu.txOut,
+                                                    bu.assetID,
+                                                    bu.balance.qty,
+                                                    bu.balance.qtyChecked,
+                                                    bu.balance.qtyFailures,
+                                                    bu.balance.balanceState));
+                                        }
+                                        else
+                                        {
+                                            bu.balance.setQty(BigInteger.ZERO, CSBalance.CSBalanceState.CALCULATED);                                    
+                                        }
+                                        csLog.info("Balance DB: Update: " + bu.txOut.getTxID().toString() + "-"
+                                                                        + bu.txOut.getIndex() + "-"
+                                                                        + bu.assetID + "-"
+                                                                        + bu.balance.qty + "-"
+                                                                        + bu.balance.qtyChecked + "-"
+                                                                        + bu.balance.qtyFailures + "-"
+                                                                        + bu.balance.balanceState);                            
+                                        break;
+                                }
+                            }
+                        }
+                        
+                    }                    
+                    
+                }                
+            }            
+
+            deleteFlag=true;
+            if(new Date().getTime() - entryTime.getTime() < 60000)
+            {
+                for(int i=0;i<balanceUpdates.size();i++)
+                {
+                    CSBalanceDatabase.CSBalanceUpdate bu=balanceUpdates.get(i);
+                    switch(bu.balance.balanceState)
+                    {
+                        case NEVERCHECKED:
+                        case UNKNOWN:
+                            if(bu.txOut.getTxID().equals(tx.getHash()))
+                            {
+                                deleteFlag=false;
+                            }                
+                            break;
+                    }
+                }    
+                
+            }
+        }
+        
+    }
+    
     private class CSBalanceUpdate
     {
         public CSTransactionOutput txOut;
         public int assetID;
         public CSBalanceDatabase.CSBalanceEntry balance;
         public CSBalanceDatabase.CSBalanceEntry oldBalance=null;
+        public BigInteger qtyBTC;
         public int offset;
         public int assetIDInRequest=-1;
         public int serverIDInRequest=-1;
 
         public CSBalanceUpdate() {}
         
-        public CSBalanceUpdate(CSTransactionOutput TxOut,int AssetID,CSBalanceDatabase.CSBalanceEntry Balance,int Offset) 
+        public CSBalanceUpdate(CSTransactionOutput TxOut,int AssetID,CSBalanceDatabase.CSBalanceEntry Balance,int Offset,BigInteger QtyBTC) 
         {
             txOut=TxOut;
             assetID=AssetID;
             balance=Balance;
             offset=Offset;
-            oldBalance=null;                    
+            oldBalance=null;    
+            qtyBTC=QtyBTC;
         }
         
         public void setBalance(CSBalanceDatabase.CSBalanceEntry Balance)
@@ -930,7 +1207,7 @@ public class CSBalanceDatabase {
         }
     }
         
-    private boolean applyBalanceUpdates()
+    private boolean applyBalanceUpdates(List<CSBalanceDatabase.CSBalanceUpdate> balanceUpdates)
     {
         if(balanceUpdates.isEmpty())
         {
@@ -945,50 +1222,58 @@ public class CSBalanceDatabase {
             return false;
         }
         
+        boolean result=true;
         int rollback=-1;
         for(int i=0;i<balanceUpdates.size();i++)
         {
             CSBalanceDatabase.CSBalanceUpdate bu=balanceUpdates.get(i);
-            if(bu.oldBalance != null)
+            if(bu.offset>=0)
             {
-                map.get(bu.txOut.getStrValue()).map.replace(bu.assetID,bu.balance);
-                try {
-                    aFile.seek(bu.balance.offsetInDB+4);
-                } catch (IOException ex) {
-                    log.error("Balance DB: Cannot set file position " + ex.getClass().getName() + " " + ex.getMessage());                
-                    rollback=i;
-                    break;
+                if((bu.oldBalance != null) || ((bu.balance != null) && (bu.balance.balanceState == CSBalance.CSBalanceState.REFRESH)))
+                {
+                    map.get(bu.txOut.getStrValue()).map.replace(bu.assetID,bu.balance);
+                    try {
+                        aFile.seek(bu.balance.offsetInDB+4);
+                    } catch (IOException ex) {
+                        log.error("Balance DB: Cannot set file position " + ex.getClass().getName() + " " + ex.getMessage());                
+                        rollback=i;
+                        break;
+                    }
+                    try {
+                        aFile.write(bu.balance.serialize());
+                    } catch (IOException ex) {
+                        log.error("Balance DB: Cannot write to file " + ex.getClass().getName() + " " + ex.getMessage());                
+                        rollback=i;
+                        break;
+                    }                
                 }
-                try {
-                    aFile.write(bu.balance.serialize());
-                } catch (IOException ex) {
-                    log.error("Balance DB: Cannot write to file " + ex.getClass().getName() + " " + ex.getMessage());                
-                    rollback=i;
-                    break;
-                }                
             }
         }
 
         if(rollback>=0)
         {
+            result=false;
             for(int i=0;i<=rollback;i++)
             {
                 CSBalanceDatabase.CSBalanceUpdate bu=balanceUpdates.get(i);
-                if(bu.oldBalance != null)
+                if((bu.oldBalance != null) || ((bu.balance != null) && (bu.balance.balanceState == CSBalance.CSBalanceState.REFRESH)))
                 {
-                    map.get(bu.txOut.getStrValue()).map.replace(bu.assetID,bu.balance);
-                    try {
-                        aFile.seek(bu.offset);
-                    } catch (IOException ex) {
-                        log.error("Balance DB: Cannot set file position " + ex.getClass().getName() + " " + ex.getMessage());                
-                        break;
+                    if(bu.oldBalance != null)
+                    {
+                        map.get(bu.txOut.getStrValue()).map.replace(bu.assetID,bu.balance);
+                        try {
+                            aFile.seek(bu.offset);
+                        } catch (IOException ex) {
+                            log.error("Balance DB: Cannot set file position " + ex.getClass().getName() + " " + ex.getMessage());                
+                            break;
+                        }
+                        try {
+                            aFile.write(bu.oldBalance.serialize());
+                        } catch (IOException ex) {
+                            log.error("Balance DB: Cannot write to file " + ex.getClass().getName() + " " + ex.getMessage());                
+                            break;
+                        }                
                     }
-                    try {
-                        aFile.write(bu.oldBalance.serialize());
-                    } catch (IOException ex) {
-                        log.error("Balance DB: Cannot write to file " + ex.getClass().getName() + " " + ex.getMessage());                
-                        break;
-                    }                
                 }
             }            
         }
@@ -997,11 +1282,12 @@ public class CSBalanceDatabase {
             aFile.close();
         } catch (IOException ex) {
             log.error("Balance DB: Cannot close file " + ex.getClass().getName() + " " + ex.getMessage());                
+            result=false;
         }        
         
         log.info("Balance DB: Changes commited ");                            
         balanceUpdates.clear();
-        return false;
+        return result;
     }
     
     public boolean refreshTxOut(CSTransactionOutput TxOut)
@@ -1012,16 +1298,26 @@ public class CSBalanceDatabase {
         }
         boolean result=true;
         
-        CSBalanceDatabase.CSTxOutEntry TxOutEntry=map.get(TxOut.getStrValue());                
-                
+        CSBalanceDatabase.CSTxOutEntry TxOutEntry=map.get(TxOut.getStrValue());                        
+        
         if(TxOutEntry == null)
         {
             log.info("Balance DB: TxOut " + TxOut.getTxID().toString() + "-" + TxOut.getIndex() + " not found in the database");                            
             return true;
         }
+        
 
         lock.lock();
         try {            
+            List<CSBalanceDatabase.CSBalanceUpdate> balanceUpdates= new ArrayList<CSBalanceDatabase.CSBalanceUpdate>();
+            BigInteger qtyBTC=null;
+            if(TxOutEntry.map.containsKey(0))
+            {
+                if(TxOutEntry.map.get(0).balanceState == CSBalance.CSBalanceState.VALID)
+                {
+                    qtyBTC=TxOutEntry.map.get(0).qty;
+                }
+            }
             balanceUpdates.clear();
             int off=TxOutEntry.offsetInDB+CSBalanceDatabase.CSTxOutEntry.serializedHeaderSize;
             for (Map.Entry<Integer, CSBalanceDatabase.CSBalanceEntry> entry : TxOutEntry.map.entrySet()) 
@@ -1033,14 +1329,14 @@ public class CSBalanceDatabase {
                     if(deletedAssets.indexOf(AssetID) < 0)
                     {
                         be.setQty(be.qty, CSBalance.CSBalanceState.REFRESH);
-                        balanceUpdates.add(new CSBalanceDatabase.CSBalanceUpdate(TxOut, AssetID, be, off));
+                        balanceUpdates.add(new CSBalanceDatabase.CSBalanceUpdate(TxOut, AssetID, be, off,qtyBTC));
                     }
                 }
                 off+=CSBalanceDatabase.CSBalanceEntry.serializedSize;
             }            
 
             log.info("Balance DB: Refreshing TxOut " + TxOut.getTxID().toString() + "-" + TxOut.getIndex());                            
-            result=applyBalanceUpdates();
+            result=applyBalanceUpdates(balanceUpdates);
         } finally {
             lock.unlock();
         }
@@ -1066,11 +1362,20 @@ public class CSBalanceDatabase {
         
         lock.lock();
         try {            
+            List<CSBalanceDatabase.CSBalanceUpdate> balanceUpdates= new ArrayList<CSBalanceDatabase.CSBalanceUpdate>();
             balanceUpdates.clear();
             for (Map.Entry<String, CSBalanceDatabase.CSTxOutEntry> entryTxOut : map.entrySet()) 
             {
                 CSTransactionOutput TxOut=new CSTransactionOutput(entryTxOut.getKey());
                 CSBalanceDatabase.CSTxOutEntry TxOutEntry=entryTxOut.getValue();                
+                BigInteger qtyBTC=null;
+                if(TxOutEntry.map.containsKey(0))
+                {
+                    if(TxOutEntry.map.get(0).balanceState == CSBalance.CSBalanceState.VALID)
+                    {
+                        qtyBTC=TxOutEntry.map.get(0).qty;
+                    }
+                }
                 int off=TxOutEntry.offsetInDB+CSBalanceDatabase.CSTxOutEntry.serializedHeaderSize;
 
                 for (Map.Entry<Integer, CSBalanceDatabase.CSBalanceEntry> entry : TxOutEntry.map.entrySet()) 
@@ -1079,14 +1384,19 @@ public class CSBalanceDatabase {
                     {
                         CSBalanceDatabase.CSBalanceEntry be=entry.getValue();
                         be.setQty(be.qty, CSBalance.CSBalanceState.REFRESH);
-                        balanceUpdates.add(new CSBalanceDatabase.CSBalanceUpdate(TxOut, AssetID, be, off));
+                        balanceUpdates.add(new CSBalanceDatabase.CSBalanceUpdate(TxOut, AssetID, be, off,qtyBTC));
                     }
                     off+=CSBalanceDatabase.CSBalanceEntry.serializedSize;
                 }
             }    
         
             log.info("Balance DB: Refreshing Asset " + AssetID);                            
-            result=applyBalanceUpdates();
+            result=applyBalanceUpdates(balanceUpdates);
+            if(result)
+            {
+                insertAsset(AssetID);
+                defragment();
+            }
         } finally {
             lock.unlock();
         }
@@ -1101,11 +1411,20 @@ public class CSBalanceDatabase {
         
         lock.lock();
         try {            
+            List<CSBalanceDatabase.CSBalanceUpdate> balanceUpdates= new ArrayList<CSBalanceDatabase.CSBalanceUpdate>();
             balanceUpdates.clear();
             for (Map.Entry<String, CSBalanceDatabase.CSTxOutEntry> entryTxOut : map.entrySet()) 
             {
                 CSTransactionOutput TxOut=new CSTransactionOutput(entryTxOut.getKey());
                 CSBalanceDatabase.CSTxOutEntry TxOutEntry=entryTxOut.getValue();                
+                BigInteger qtyBTC=null;
+                if(TxOutEntry.map.containsKey(0))
+                {
+                    if(TxOutEntry.map.get(0).balanceState == CSBalance.CSBalanceState.VALID)
+                    {
+                        qtyBTC=TxOutEntry.map.get(0).qty;
+                    }
+                }
                 int off=TxOutEntry.offsetInDB+CSBalanceDatabase.CSTxOutEntry.serializedHeaderSize;
 
                 for (Map.Entry<Integer, CSBalanceDatabase.CSBalanceEntry> entry : TxOutEntry.map.entrySet()) 
@@ -1117,7 +1436,7 @@ public class CSBalanceDatabase {
                         {
                             CSBalanceDatabase.CSBalanceEntry be=entry.getValue();
                             be.setQty(be.qty, CSBalance.CSBalanceState.REFRESH);
-                            balanceUpdates.add(new CSBalanceDatabase.CSBalanceUpdate(TxOut, asset, be, off));
+                            balanceUpdates.add(new CSBalanceDatabase.CSBalanceUpdate(TxOut, asset, be, off,qtyBTC));
                         }
                     }
                     off+=CSBalanceDatabase.CSBalanceEntry.serializedSize;
@@ -1125,7 +1444,7 @@ public class CSBalanceDatabase {
             }    
             
             log.info("Balance DB: Refreshing All");                            
-            result=applyBalanceUpdates();
+            result=applyBalanceUpdates(balanceUpdates);
         } finally {
             lock.unlock();
         }
@@ -1133,17 +1452,26 @@ public class CSBalanceDatabase {
         return result;
     }
     
-    private void createBalanceUpdateList()
+    private List<CSBalanceDatabase.CSBalanceUpdate> createBalanceUpdateList()
     {
         boolean takeIt;
         Date timeNow=new Date();
         long interval;
         
+        List<CSBalanceDatabase.CSBalanceUpdate> balanceUpdates= new ArrayList<CSBalanceDatabase.CSBalanceUpdate>();
         balanceUpdates.clear();
         for (Map.Entry<String, CSBalanceDatabase.CSTxOutEntry> entryTxOut : map.entrySet()) 
         {
             CSTransactionOutput TxOut=new CSTransactionOutput(entryTxOut.getKey());
             CSBalanceDatabase.CSTxOutEntry TxOutEntry=entryTxOut.getValue();                
+            BigInteger qtyBTC=null;
+            if(TxOutEntry.map.containsKey(0))
+            {
+                if(TxOutEntry.map.get(0).balanceState == CSBalance.CSBalanceState.VALID)
+                {
+                    qtyBTC=TxOutEntry.map.get(0).qty;
+                }
+            }
             int off=TxOutEntry.offsetInDB+CSBalanceDatabase.CSTxOutEntry.serializedHeaderSize;
             
             
@@ -1152,48 +1480,65 @@ public class CSBalanceDatabase {
                 int asset=entry.getKey();
                 CSBalanceDatabase.CSBalanceEntry be=entry.getValue();
                 
-                takeIt=false;
-                switch(be.balanceState)
+//                if(qtyBTC != null)
+                if(true)
                 {
-                    case NEVERCHECKED:
-                    case SELF:
-                    case REFRESH:
-                        takeIt=true;
-                        break;
-                    case UNKNOWN:
-                        interval=(timeNow.getTime()-be.qtyChecked.getTime())/1000;
-                        if(be.qtyFailures<10)
-                        {
-                            if(interval>30){
+                    takeIt=false;
+                    switch(be.balanceState)
+                    {
+                        case NEVERCHECKED:
+                        case REFRESH:
+                            takeIt=true;
+                            break;
+                        case UNKNOWN:
+                        case SELF:
+                        case CALCULATED:
+                            interval=(timeNow.getTime()-be.qtyChecked.getTime())/1000;
+                            if(be.qtyFailures<40)
+                            {
                                 takeIt=true;
                             }
-                        }
-                        else
-                        {
-                            if(be.qtyFailures<20)
-                            {
-                                if(interval>300){
-                                    takeIt=true;
-                                }
-                            }                      
                             else
                             {
-                                if(interval>86400){
-                                    takeIt=true;
-                                }
-                            }                      
-                                
-                        }
-                        break;                        
+                                if(be.qtyFailures<80)
+                                {
+                                    if(interval>15){
+                                        takeIt=true;
+                                    }
+                                }                      
+                                else
+                                {
+                                    if(be.qtyFailures<120)
+                                    {
+                                        if(interval>3600){
+                                            takeIt=true;
+                                        }
+                                    }                      
+                                    else
+                                    {
+                                        if(interval>86400){
+                                            takeIt=true;
+                                        }
+                                    }                      
+                                }                      
+
+                            }
+                            break;                        
+                    }
+                }
+                else
+                {
+                    takeIt=true;
                 }
                 if(takeIt)
                 {
-                    balanceUpdates.add(new CSBalanceDatabase.CSBalanceUpdate(TxOut, asset, be, off));
+                    balanceUpdates.add(new CSBalanceDatabase.CSBalanceUpdate(TxOut, asset, be, off,qtyBTC));
                 }
                 off+=CSBalanceDatabase.CSTxOutEntry.serializedRowSize;
             }
         }    
         
+        return balanceUpdates;
     }
     
     private class JRequestTxOut
@@ -1222,7 +1567,7 @@ public class CSBalanceDatabase {
         public CSBalanceDatabase.JRequestParams params;
     }
         
-    private void processBalanceUpdateList(Map<String,Integer> TxDepthMap)
+    private void processBalanceUpdateList(List<CSBalanceDatabase.CSBalanceUpdate> balanceUpdates,Map<String,Integer> TxDepthMap)
     {
         if(assetDB == null)
         {
@@ -1363,8 +1708,9 @@ public class CSBalanceDatabase {
                         }
                         else
                         {
+                            log.error(downloaded.contents);
                             jelement = new JsonParser().parse(downloaded.contents);
-                            jobject = jelement.getAsJsonObject();                        
+                            jobject = jelement.getAsJsonObject();                                                    
                         }
                             
                         if(jobject != null)
@@ -1449,7 +1795,31 @@ public class CSBalanceDatabase {
                         if(bu.serverIDInRequest == s)
                         {
                             try
-                            {
+                            {                                
+                                if(bu.qtyBTC == null)
+                                {
+                                    if((jresult.get("BTC") != null) && (jresult.get("BTC").isJsonArray()))
+                                    {
+                                        JsonArray jarray = jresult.getAsJsonArray("BTC");                            
+                                        for (int j = 0; j < jarray.size(); j++)
+                                        {
+                                            JsonObject jentry = jarray.get(j).getAsJsonObject();
+                                            if(jentry.get("txid") != null)
+                                            {
+                                                String txID=jentry.get("txid").toString();
+                                                txID=txID.substring(1,65);
+                                                if((jentry.get("vout") != null) && bu.txOut.equals(txID,jentry.get("vout").getAsInt()))
+                                                {
+                                                    if((jentry.get("error") == null) && (jentry.get("qty") != null))
+                                                    {
+                                                        bu.qtyBTC=new BigInteger(jentry.get("qty").getAsString());
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }                                    
+                                }
+                                
                                 String genTxID=assets.get(bu.assetIDInRequest).getGenTxID();
 
                                 if((jresult.get(genTxID) != null) && (jresult.get(genTxID).isJsonArray()))
@@ -1466,13 +1836,13 @@ public class CSBalanceDatabase {
                                             {
                                                 if((jentry.get("error") != null) || (jentry.get("qty") == null))
                                                 {
-                                                    if(bu.balance.balanceState != CSBalance.CSBalanceState.SELF)
+                                                    if((bu.balance.balanceState != CSBalance.CSBalanceState.SELF) && (bu.balance.balanceState != CSBalance.CSBalanceState.CALCULATED))
                                                     {
                                                         bu.balance.setQty(bu.balance.qty, CSBalance.CSBalanceState.UNKNOWN);
                                                     }
                                                     else
                                                     {
-                                                        bu.balance.setQty(bu.balance.qty, CSBalance.CSBalanceState.SELF);                                                        
+                                                        bu.balance.setQty(bu.balance.qty, bu.balance.balanceState);                                                        
                                                     }
                                                     if(TxDepthMap != null)
                                                     {
@@ -1497,7 +1867,7 @@ public class CSBalanceDatabase {
                                                     }
                                                     else
                                                     {
-                                                        if(jentry.get("qty").getAsInt()>0)
+                                                        if(jentry.get("qty").getAsLong()>0)
                                                         {
                                                             bu.balance.setQty(new BigInteger(jentry.get("qty").getAsString()), CSBalance.CSBalanceState.VALID);
                                                             CSEventBus.INSTANCE.postAsyncEvent(CSEventType.BALANCE_VALID,     
@@ -1591,6 +1961,16 @@ public class CSBalanceDatabase {
         }
         
         calculationInProgress=true;
+        
+        log.error("In");
+        try {
+            Thread.sleep(4000);
+        } catch (InterruptedException ex) {
+            java.util.logging.Logger.getLogger(CSBalanceDatabase.class.getName()).log(Level.SEVERE, null, ex);
+        }
+        log.error("Out");
+        
+        List<CSBalanceDatabase.CSBalanceUpdate> balanceUpdates;//= new ArrayList<CSBalanceDatabase.CSBalanceUpdate>();        
 
         checkDuplicates();
         
@@ -1601,16 +1981,37 @@ public class CSBalanceDatabase {
                 defragment();
             }
 
-            createBalanceUpdateList();
+            balanceUpdates=createBalanceUpdateList();
+            for(CSBalanceTransaction trackedTx : trackedTransactions)
+            {
+                trackedTx.addInputBalanceUpdates(balanceUpdates);
+            }
         } finally {
             lock.unlock();
         }
         
-        processBalanceUpdateList(TxDepthMap);
+        processBalanceUpdateList(balanceUpdates,TxDepthMap);
+        
+        CSBalanceTransaction [] trackedTxToRemove=new CSBalanceTransaction[trackedTransactions.size()];
+        int count=0;
+        for(CSBalanceTransaction trackedTx : trackedTransactions)
+        {            
+            trackedTx.applyInputBalances(balanceUpdates);
+            if(trackedTx.deleteFlag)
+            {
+                trackedTxToRemove[count]=trackedTx;
+                count++;
+            }
+        }
+        
+        for(int i=0;i<count;i++)
+        {
+            trackedTransactions.remove(trackedTxToRemove[i]);            
+        }
         
         lock.lock();
         try {            
-            applyBalanceUpdates();
+            applyBalanceUpdates(balanceUpdates);
         } finally {
             lock.unlock();
         }

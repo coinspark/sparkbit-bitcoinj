@@ -26,6 +26,7 @@ package org.coinspark.wallet;
 import com.google.bitcoin.core.Sha256Hash;
 import com.google.bitcoin.core.Transaction;
 import com.google.bitcoin.core.TransactionInput;
+import com.google.bitcoin.core.TransactionOutPoint;
 import com.google.bitcoin.core.TransactionOutput;
 import com.google.bitcoin.core.Wallet;
 import java.math.BigInteger;
@@ -109,6 +110,7 @@ public class CSTransactionAssets {
         }
 
         boolean [] defaultOutputs;
+        boolean retrieveInputBalances=false;
         
         int output_id=0;
         int countOutputs=parentTransaction.getOutputs().size();
@@ -136,7 +138,8 @@ public class CSTransactionAssets {
             for(output_id=0;output_id<countOutputs;output_id++)
             {
                 outputBalanceMap.get(output_id).put(-1,BigInteger.valueOf(outputBalances[output_id]));
-            }                                                
+            }                        
+            retrieveInputBalances=true;
         }
         
         if(transfers != null)
@@ -149,10 +152,12 @@ public class CSTransactionAssets {
                 output_id++;
             }
             defaultOutputs=transfers.defaultOutputs(countInputs, outputsRegular);
+            retrieveInputBalances=true;
             if(inputBalances != null)
             {
                 if(inputBalances.containsKey(0))
                 {
+                    retrieveInputBalances=false;
                     long totalInput=0;
                     long totalOutput=0;
                     long [] outputsSatoshis=new long [countOutputs];
@@ -212,7 +217,20 @@ public class CSTransactionAssets {
         }
         
         Sha256Hash hash=parentTransaction.getHash();
-        
+
+        int [] inputAssetIDs=null;
+        if(genesis != null)
+        {
+            inputAssetIDs=new int[1];
+        }
+        if(transfers != null)
+        {
+            inputAssetIDs=new int[transfers.count()];
+            for(int i=0;i<transfers.count();i++)
+            {
+                inputAssetIDs[i]=0;
+            }
+        }
         CSAsset found=null;
         
         output_id=0;
@@ -269,6 +287,7 @@ public class CSTransactionAssets {
                         }
 */        
                         balanceDB.insertTxOut(new CSTransactionOutput(hash, output_id),  new int [] {found.getAssetID()},outputBalanceMap.get(output_id));
+                        inputAssetIDs[0]=found.getAssetID();
                     }
                 }
                 
@@ -306,10 +325,17 @@ public class CSTransactionAssets {
                                             balanceDB.insertAsset(found.getAssetID());
                                         }            
                                         assetIDs[size]=found.getAssetID();
+                                        inputAssetIDs[i]=found.getAssetID();
+                                        if(inputBalances == null || !inputBalances.containsKey(inputAssetIDs[i]))                                            
+                                        {
+                                            retrieveInputBalances=true;
+                                        }
+                                        
                                         if(!map.containsKey(found.getAssetID()))
                                         {
                                             map.put(found.getAssetID(), BigInteger.valueOf((-1)*transfer.getQtyPerOutput()));
                                         }
+        
                                         size++;
                                     }                            
                                 }
@@ -325,6 +351,12 @@ public class CSTransactionAssets {
             output_id++;
         }        
         
+/*        
+        if(retrieveInputBalances)
+        {
+            balanceDB.addTrackedTransaction(parentTransaction);
+        }
+*/
         return true;
     }
     
