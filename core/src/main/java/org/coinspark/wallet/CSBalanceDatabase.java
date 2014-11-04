@@ -1708,7 +1708,6 @@ public class CSBalanceDatabase {
                         }
                         else
                         {
-                            log.error(downloaded.contents);
                             jelement = new JsonParser().parse(downloaded.contents);
                             jobject = jelement.getAsJsonObject();                                                    
                         }
