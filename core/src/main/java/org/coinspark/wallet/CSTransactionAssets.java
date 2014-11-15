@@ -142,78 +142,79 @@ public class CSTransactionAssets {
             retrieveInputBalances=true;
         }
         
-        if(transfers != null)
+        CoinSparkTransferList transfersToApply=transfers;
+        if(transfersToApply == null)
         {
-            boolean [] outputsRegular=new boolean[countOutputs];
-            output_id=0;
-            for (TransactionOutput output : parentTransaction.getOutputs())
+            transfersToApply=new CoinSparkTransferList();
+        }
+        
+        boolean [] outputsRegular=new boolean[countOutputs];
+        output_id=0;
+        for (TransactionOutput output : parentTransaction.getOutputs())
+        {
+            outputsRegular[output_id] = CoinSparkBase.scriptIsRegular(output.getScriptBytes());
+            output_id++;
+        }
+        defaultOutputs=transfersToApply.defaultOutputs(countInputs, outputsRegular);
+
+        retrieveInputBalances=true;
+        if(inputBalances != null)
+        {
+            if(inputBalances.containsKey(0))
             {
-                outputsRegular[output_id] = CoinSparkBase.scriptIsRegular(output.getScriptBytes());
-                output_id++;
-            }
-            defaultOutputs=transfers.defaultOutputs(countInputs, outputsRegular);
-            retrieveInputBalances=true;
-            if(inputBalances != null)
-            {
-                if(inputBalances.containsKey(0))
+                retrieveInputBalances=false;
+                long totalInput=0;
+                long totalOutput=0;
+                long [] outputsSatoshis=new long [countOutputs];
+                for(int input_id=0;input_id<parentTransaction.getInputs().size();input_id++)
                 {
-                    retrieveInputBalances=false;
-                    long totalInput=0;
-                    long totalOutput=0;
-                    long [] outputsSatoshis=new long [countOutputs];
-                    for(int input_id=0;input_id<parentTransaction.getInputs().size();input_id++)
+                    totalInput+=inputBalances.get(0)[input_id];
+                }
+                for(output_id=0;output_id<countOutputs;output_id++)
+                {
+                    long value=parentTransaction.getOutput(output_id).getValue().longValue();
+                    outputsSatoshis[output_id]=value;
+                    totalOutput+=value;
+                }
+
+                long validFeeSatoshis=0;
+                if(transfers != null)
+                {
+                    validFeeSatoshis=transfers.calcMinFee(countInputs, outputsSatoshis, outputsRegular);
+                }
+                long feeSatoshis=totalInput-totalOutput;
+                for (Map.Entry<Integer, long []> entry : inputBalances.entrySet())                         
+                {
+                    int assetID=entry.getKey();
+                    CoinSparkAssetRef assetRef;
+                    CSAsset asset=assetDB.getAsset(assetID);
+                    if(assetID != 0)
                     {
-                        totalInput+=inputBalances.get(0)[input_id];
-                    }
-                    for(output_id=0;output_id<countOutputs;output_id++)
-                    {
-                        long value=parentTransaction.getOutput(output_id).getValue().longValue();
-                        outputsSatoshis[output_id]=value;
-                        totalOutput+=value;
-                    }
-                    long validFeeSatoshis=transfers.calcMinFee(countInputs, outputsSatoshis, outputsRegular);
-                    long feeSatoshis=totalInput-totalOutput;
-                    for (Map.Entry<Integer, long []> entry : inputBalances.entrySet())                         
-                    {
-                        int assetID=entry.getKey();
-                        CoinSparkAssetRef assetRef=null;
-                        CSAsset asset=assetDB.getAsset(assetID);
-                        if(assetID != 0)
+                        if(asset != null && asset.getGenesis() != null)
                         {
-                            if(asset != null && asset.getGenesis() != null)
+                            assetRef=asset.getAssetReference();
+                            if(assetRef != null)
                             {
-                                assetRef=asset.getAssetReference();
-                                if(assetRef != null)
+                                long [] outputBalances;
+                                
+                                if((transfers != null) && (feeSatoshis >= validFeeSatoshis))
                                 {
-                                    long [] outputBalances;
-                                    if(feeSatoshis >= validFeeSatoshis)
-                                    {
-                                        outputBalances=transfers.apply(assetRef, asset.getGenesis(), entry.getValue(),outputsRegular);
-                                    }
-                                    else
-                                    {
-                                        outputBalances=transfers.applyNone(assetRef, asset.getGenesis(), entry.getValue(), outputsRegular);
-                                    }
-                                    for(output_id=0;output_id<countOutputs;output_id++)
-                                    {
-                                        outputBalanceMap.get(output_id).put(assetID,BigInteger.valueOf(outputBalances[output_id]));
-                                    }                                    
+                                    outputBalances=transfersToApply.apply(assetRef, asset.getGenesis(), entry.getValue(),outputsRegular);
                                 }
+                                else
+                                {
+                                    outputBalances=transfersToApply.applyNone(assetRef, asset.getGenesis(), entry.getValue(), outputsRegular);
+                                }
+                                
+                                for(output_id=0;output_id<countOutputs;output_id++)
+                                {
+                                    outputBalanceMap.get(output_id).put(assetID,BigInteger.valueOf(outputBalances[output_id]));
+                                }                                    
                             }
                         }
-                    }        
-                    
-                }
+                    }
+                }        
             }
-        }
-        else
-        {
-            defaultOutputs=new boolean[countOutputs];
-            for(output_id=0;output_id<countOutputs-1;output_id++)
-            {
-                defaultOutputs[output_id]=false;
-            }
-            defaultOutputs[countOutputs-1]=true;
         }
         
         Sha256Hash hash=parentTransaction.getHash();

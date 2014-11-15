@@ -290,6 +290,8 @@ public class CSAsset {
     public CSUtils.CSMimeType getContractMimeType(){return contractMimeType;}
     public String  getIconPath(){return iconPath;}    
     public String  getImagePath(){return imagePath;}    
+    public String [] getCoinsparkTrackerUrls(){return coinsparkTrackerUrls;}
+
     
     public String  getName(){return name;}
     public String  getNameShort(){return nameShort;}
@@ -734,7 +736,7 @@ public class CSAsset {
         return raw;
     }
     
-    private boolean validateContract(String contractContent)
+    private boolean validateContract(byte [] contractContent)
     {
         return true;
     }
@@ -753,7 +755,7 @@ public class CSAsset {
         
         byte [] contractContent=readContract();
     
-        if(!validateContract(contractPath))
+        if(!validateContract(contractContent))
         {
             assetValidationState = CSAssetState.CONTRACT_INVALID;
             return false;
