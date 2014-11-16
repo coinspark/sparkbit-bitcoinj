@@ -533,6 +533,7 @@ public class CSBalanceDatabase {
             lock.unlock();
         }
         
+        csLog.info("Balance DB: Inserted new TxOut: " + TxOut.toString());
         return result;
     }
     

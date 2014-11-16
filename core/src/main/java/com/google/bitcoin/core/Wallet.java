@@ -67,6 +67,7 @@ import java.util.logging.FileHandler;
 import java.util.logging.Handler;
 import java.util.logging.Level;
 import org.coinspark.core.CSLogger;
+import org.coinspark.core.CSPDFParser;
 import org.coinspark.core.CSUtils;
 import org.coinspark.protocol.CoinSparkBase;
 import org.coinspark.protocol.CoinSparkIORange;
@@ -5157,6 +5158,11 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
         {
             Map <Integer,BigInteger> map= new HashMap<Integer,BigInteger>();
 
+            if(balanceDB == null)
+            {
+                return map;
+            }
+            
             map.put(0, BigInteger.ZERO);
             for(TransactionOutput output: outputs)
             {
@@ -5673,6 +5679,102 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
         
         
         s+="\n";
+        
+//        String pdfPath="/home/mike/tmp/pdfs/asset000017_contract.pdf";
+//        String pdfPath="/home/mike/tmp/pdfs/PDF32000_2008.pdf";
+        
+        String pdfPath;
+        String folderPath="/home/mike/tmp/pdfs/";
+        File folder = new File(folderPath);
+        File[] listOfFiles = folder.listFiles(); 
+ 
+        for (int i = 0; i < listOfFiles.length; i++) 
+//        for (int i = 0; i < 10; i++) 
+        { 
+            if (listOfFiles[i].isFile()) 
+            {
+                pdfPath=folderPath+listOfFiles[i].getName();
+                if(".pdf".equals(pdfPath.substring(pdfPath.length()-4, pdfPath.length())))
+                {
+                    s1="";
+                    String s2="";
+                    int fileSize=0;
+                    RandomAccessFile aFile;
+                    try {
+                        aFile = new RandomAccessFile(pdfPath, "r");
+                        fileSize = (int)aFile.length();                    
+                        if(fileSize > 0)
+                        {
+                            byte[] raw=new byte[fileSize];
+
+                            if(!CSUtils.readFromFileToBytes(aFile,raw))
+                            {
+                                s+="ID: " + i + ", File: " + pdfPath + " Error: Cannot read file\n";
+                                return null;            
+                            }
+
+                            CSPDFParser parser=new CSPDFParser(raw);
+
+                            Date startTime=new Date();
+                            String result= "SUCCESS";
+                            boolean rerun=true;
+                            boolean logObjects=false;
+                            while(rerun)
+                            {
+                                rerun=false;
+                                int next=0;
+                                while(next<raw.length)
+                                {
+                                    CSPDFParser.CSPDFObject obj;
+                                    try {
+                                        obj = parser.getObject(next);
+                                        if(obj != null)
+                                        {
+                                            if(logObjects)
+                                            {
+                                                s2+=obj.toString() + "\n";
+                                            }
+                    //                        s+=obj.toString() + "\n";
+                                            next=obj.offsetNext;
+                                            if(obj.type == CSPDFParser.CSPDFObjectType.STRANGE)
+                                            {
+                                                result="FAILURE!!!";
+                                                if(!logObjects)
+                                                {
+                                                    rerun=true;
+                                                    logObjects=true;
+                                                }
+                                                next=raw.length;
+                                            }
+                                        }
+                                        else
+                                        {
+                                            next=raw.length;                        
+                                        }
+                                    } catch (Exception ex) {
+                                        s+="ERROR!!!\n";
+                                        java.util.logging.Logger.getLogger(Wallet.class.getName()).log(Level.SEVERE, null, ex);
+                                        next=raw.length;                        
+                                    }
+                                }
+                            }
+                            s1=s2+"ID: " + i + ", File: " + pdfPath + ", Size: "+ fileSize + ", Time: " + (new Date().getTime()-startTime.getTime()) + "ms, Result: " + result;
+                        }
+
+                        aFile.close();
+                    } catch (FileNotFoundException ex) {
+                        s1="ID: " + i + ", File: " + pdfPath + " Error: Cannot open file";
+                    } catch (IOException ex) {
+                        s1="ID: " + i + ", File: " + pdfPath + " Error: Cannot get file size";
+                    }
+                    s+=s1+"\n";
+                    CS.log.info(s1);        
+                    
+                }
+            }
+        
+        }
+        
 /*        
         s+="Asset totals (spendable)\n\n";
         
@@ -5694,7 +5796,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
             s+="Qty Asset " + entry.getKey() + ": " + entry.getValue() + "\n";
         }        
 */      
-  
+/*  
         s+="Asset totals \n\n";
         
         Map <Integer,CoinSpark.AssetBalance> mapQtys=CS.getAllAssetBalances();                
@@ -5800,7 +5902,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
         {
             s+="Tx  " + entry.getKey() + ": " + entry.getValue() + "\n";
         }        
-        
+  */      
         
         
 /*        
