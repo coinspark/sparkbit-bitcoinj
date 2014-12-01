@@ -4670,7 +4670,8 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
             for (SendRequest.CSAssetTransfer assetTransfer : req.assetTransfers) {
 
                 CSAsset asset=assetDB.getAsset(assetTransfer.assetID);
-                if((asset.getAssetState() == CSAsset.CSAssetState.VALID)  && asset.isAssetRefValid())
+//                if((asset.getAssetState() == CSAsset.CSAssetState.VALID)  && asset.isAssetRefValid())
+                if(asset.isAssetRefValid())
                 {
                     int i=assetIDs.indexOf(assetTransfer.assetID);
                     if(i<0)
@@ -5680,16 +5681,15 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
         
         s+="\n";
         
-//        String pdfPath="/home/mike/tmp/pdfs/asset000017_contract.pdf";
-//        String pdfPath="/home/mike/tmp/pdfs/PDF32000_2008.pdf";
         
+        
+/*        
         String pdfPath;
         String folderPath="/home/mike/tmp/pdfs/";
         File folder = new File(folderPath);
         File[] listOfFiles = folder.listFiles(); 
  
         for (int i = 0; i < listOfFiles.length; i++) 
-//        for (int i = 0; i < 10; i++) 
         { 
             if (listOfFiles[i].isFile()) 
             {
@@ -5774,6 +5774,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
             }
         
         }
+  */
         
 /*        
         s+="Asset totals (spendable)\n\n";
