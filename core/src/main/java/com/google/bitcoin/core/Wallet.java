@@ -5393,6 +5393,26 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
         }
 
         /**
+         * Returns all unspent txouts having non-zero valid value for given asset.
+         * @return TxOut -> Quantity map
+         */
+
+        public Map<CSTransactionOutput,Map<Integer,CSBalance>> getAllUnspentAssetTxOuts()
+        {
+            LinkedList<TransactionOutput> candidates = calculateAllSpendCandidates(true);
+
+            Map <CSTransactionOutput,Map<Integer,CSBalance>> map= new HashMap<CSTransactionOutput,Map<Integer,CSBalance>>();
+
+            for(TransactionOutput output: candidates)
+            {
+                CSTransactionOutput txOut=new CSTransactionOutput(output.getParentTransaction(), output.getIndex());
+                map.put(txOut, getTxOutBalances(txOut));
+            }
+            
+            return map;
+        }
+        
+        /**
          * Returns the list of balances for specific txout, including BTC value (asset ID=0).
          * @param TxOut
          * @return AssetID -> CSBalance map
@@ -5681,7 +5701,20 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
         
         s+="\n";
         
+        s+="Unspent TxOuts\n\n";
+        Map<CSTransactionOutput,Map<Integer,CSBalance>>  mapTxOuts=CS.getAllUnspentAssetTxOuts();
         
+        for (Map.Entry<CSTransactionOutput,Map<Integer,CSBalance>> entryTxOut : mapTxOuts.entrySet()) 
+        {
+            s+="TxOut " + entryTxOut.getKey() + "\n";
+            for (Map.Entry<Integer,CSBalance> entryBalance : entryTxOut.getValue().entrySet()) 
+            {
+                s+=" Asset: " + entryBalance.getKey() + ": " + entryBalance.getValue() + "\n";
+            }        
+            s+="\n";
+        }        
+        
+        s+="\n";
         
 /*        
         String pdfPath;
