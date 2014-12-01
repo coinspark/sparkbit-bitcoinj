@@ -5446,7 +5446,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
          * @return TxOut -> Quantity map
          */
 
-        public Map<CSTransactionOutput,Map<Integer,CSBalance>> getAllUnspentAssetTxOuts()
+        public Map<CSTransactionOutput,Map<Integer,CSBalance>> getAllAssetTxOuts()
         {
             LinkedList<TransactionOutput> candidates = calculateAllTxOuts();
 
@@ -5751,7 +5751,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
         s+="\n";
         
         s+="Unspent TxOuts\n\n";
-        Map<CSTransactionOutput,Map<Integer,CSBalance>>  mapTxOuts=CS.getAllUnspentAssetTxOuts();
+        Map<CSTransactionOutput,Map<Integer,CSBalance>>  mapTxOuts=CS.getAllAssetTxOuts();
         
         for (Map.Entry<CSTransactionOutput,Map<Integer,CSBalance>> entryTxOut : mapTxOuts.entrySet()) 
         {
