@@ -4500,6 +4500,18 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
         private CSAssetDatabase assetDB;
         private CSBalanceDatabase balanceDB;
         
+	// !!! Experimental
+	private boolean canSendInvalidAssets;
+
+	public boolean canSendInvalidAssets() {
+	    return canSendInvalidAssets;
+	}
+
+	public void setCanSendInvalidAssets(boolean canSendInvalidAssets) {
+	    this.canSendInvalidAssets = canSendInvalidAssets;
+	}
+	// !!! Experimental
+
         /**
          * CounSpark logger
          */
@@ -4707,8 +4719,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
             for (SendRequest.CSAssetTransfer assetTransfer : req.assetTransfers) {
 
                 CSAsset asset=assetDB.getAsset(assetTransfer.assetID);
-//                if((asset.getAssetState() == CSAsset.CSAssetState.VALID)  && asset.isAssetRefValid())
-                if(asset.isAssetRefValid())
+                if((asset.getAssetState() == CSAsset.CSAssetState.VALID || true==canSendInvalidAssets)  && asset.isAssetRefValid())
                 {
                     int i=assetIDs.indexOf(assetTransfer.assetID);
                     if(i<0)
