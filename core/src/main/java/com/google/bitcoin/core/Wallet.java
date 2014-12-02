@@ -1860,6 +1860,24 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
             return req;
         }
         
+        public boolean addInput(Wallet InputWallet,CSTransactionOutput InputTxOut)
+        {
+            LinkedList<TransactionOutput> candidates=InputWallet.CS.calculateAllTxOuts();
+            
+            for(TransactionOutput output: candidates)
+            {
+                if(InputTxOut.getTxID().equals(output.parentTransaction.getHash()))
+                {
+                    if(InputTxOut.getIndex() == output.getIndex())
+                    {
+                        tx.addInput(output);                  
+                        return true;
+                    }
+                }
+            }            
+            
+            return false;
+        }
         
         
         private void resetTxInputs(List<TransactionInput> originalInputs) {
@@ -4563,13 +4581,13 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
                 if(output == null){
                     return null;
                 }
-                CSTransactionOutput txOut=new CSTransactionOutput(output.parentTransaction.getHash(), output.getIndex());
+                CSTransactionOutput txOut=new CSTransactionOutput(output.getParentTransaction().getHash(), output.getIndex());
                 CSBalance balance = balanceDB.getBalance(txOut,AssetID);
                 if(balance != null)
                 {
                     if((balance.getState() == CSBalance.CSBalanceState.VALID) || (balance.getState() == CSBalance.CSBalanceState.SELF))
                     {
-                        valueNeeded.subtract(balance.getQty());
+                        valueNeeded = valueNeeded.subtract(balance.getQty());
                         if(first<0)
                         {
                             first=id;
@@ -4595,16 +4613,35 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
             }
 
             for(TransactionOutput output: candidates)
-            {
-                CSTransactionOutput txOut=new CSTransactionOutput(output.getParentTransaction(), output.getIndex());
-                CSBalance balance = balanceDB.getBalance(txOut,AssetID);
-                if(balance != null)
+            {                
+                boolean inOriginalList=false;
+                for(TransactionInput input: originalInputs)
                 {
-                    if((balance.getState() == CSBalance.CSBalanceState.VALID) || (balance.getState() == CSBalance.CSBalanceState.SELF))
+                    TransactionOutput inputTxOut=input.getConnectedOutput();
+                    if(inputTxOut != null)
                     {
-                        txOut.setValue(balance.getQty());
-                        assetCandidates.add(txOut);
-                    }                
+                        if(inputTxOut.getParentTransaction().getHash().equals(output.parentTransaction.getHash()))
+                        {
+                            if(inputTxOut.getIndex() == output.getIndex())
+                            {
+                                inOriginalList=true;
+                            }
+                        }
+                    }
+                }
+                
+                if(!inOriginalList)
+                {
+                    CSTransactionOutput txOut=new CSTransactionOutput(output.getParentTransaction(), output.getIndex());
+                    CSBalance balance = balanceDB.getBalance(txOut,AssetID);
+                    if(balance != null)
+                    {
+                        if((balance.getState() == CSBalance.CSBalanceState.VALID) || (balance.getState() == CSBalance.CSBalanceState.SELF))
+                        {
+                            txOut.setValue(balance.getQty());
+                            assetCandidates.add(txOut);
+                        }                
+                    }
                 }
             }
 
@@ -4670,7 +4707,8 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
             for (SendRequest.CSAssetTransfer assetTransfer : req.assetTransfers) {
 
                 CSAsset asset=assetDB.getAsset(assetTransfer.assetID);
-                if((asset.getAssetState() == CSAsset.CSAssetState.VALID)  && asset.isAssetRefValid())
+//                if((asset.getAssetState() == CSAsset.CSAssetState.VALID)  && asset.isAssetRefValid())
+                if(asset.isAssetRefValid())
                 {
                     int i=assetIDs.indexOf(assetTransfer.assetID);
                     if(i<0)
@@ -5391,6 +5429,38 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
             return map;
         }
 
+        protected LinkedList<TransactionOutput> calculateAllTxOuts()
+        {
+            LinkedList<TransactionOutput> candidates = Lists.newLinkedList();
+            for (Transaction tx : Iterables.concat(unspent.values(), pending.values())) {
+                for (TransactionOutput output : tx.getOutputs()) {
+                    if (!output.isMine(CS.wallet)) continue;
+                    candidates.add(output);
+                }
+            }
+            
+            return candidates;
+        }
+        /**
+         * Returns all unspent txouts having non-zero valid value for given asset.
+         * @return TxOut -> Quantity map
+         */
+
+        public Map<CSTransactionOutput,Map<Integer,CSBalance>> getAllAssetTxOuts()
+        {
+            LinkedList<TransactionOutput> candidates = calculateAllTxOuts();
+
+            Map <CSTransactionOutput,Map<Integer,CSBalance>> map= new HashMap<CSTransactionOutput,Map<Integer,CSBalance>>();
+
+            for(TransactionOutput output: candidates)
+            {
+                CSTransactionOutput txOut=new CSTransactionOutput(output.getParentTransaction(), output.getIndex());
+                map.put(txOut, getTxOutBalances(txOut));
+            }
+            
+            return map;
+        }
+        
         /**
          * Returns the list of balances for specific txout, including BTC value (asset ID=0).
          * @param TxOut
@@ -5683,16 +5753,28 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
         
         s+="\n";
         
-//        String pdfPath="/home/mike/tmp/pdfs/asset000017_contract.pdf";
-//        String pdfPath="/home/mike/tmp/pdfs/PDF32000_2008.pdf";
+        s+="Unspent TxOuts\n\n";
+        Map<CSTransactionOutput,Map<Integer,CSBalance>>  mapTxOuts=CS.getAllAssetTxOuts();
         
+        for (Map.Entry<CSTransactionOutput,Map<Integer,CSBalance>> entryTxOut : mapTxOuts.entrySet()) 
+        {
+            s+="TxOut " + entryTxOut.getKey() + "\n";
+            for (Map.Entry<Integer,CSBalance> entryBalance : entryTxOut.getValue().entrySet()) 
+            {
+                s+=" Asset: " + entryBalance.getKey() + ": " + entryBalance.getValue() + "\n";
+            }        
+            s+="\n";
+        }        
+        
+        s+="\n";
+        
+/*        
         String pdfPath;
         String folderPath="/home/mike/tmp/pdfs/";
         File folder = new File(folderPath);
         File[] listOfFiles = folder.listFiles(); 
  
         for (int i = 0; i < listOfFiles.length; i++) 
-//        for (int i = 0; i < 10; i++) 
         { 
             if (listOfFiles[i].isFile()) 
             {
@@ -5777,6 +5859,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
             }
         
         }
+  */
         
 /*        
         s+="Asset totals (spendable)\n\n";

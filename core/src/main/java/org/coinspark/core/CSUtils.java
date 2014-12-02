@@ -44,11 +44,14 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.TimeZone;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 
 
 public class CSUtils {
 
+    private static final Logger log = LoggerFactory.getLogger(CSUtils.class);
     public enum CSMimeType {
 
         /* Preferred Common Types */
@@ -347,7 +350,10 @@ public class CSUtils {
         public int size;
         public String method;
         public String postRequest="";
+        public int responseCode=0;
+        public String ResponseMessage="";
         public Map <String,String> additionalHeaders=new HashMap<String, String>();
+        
         
         public CSDownloadedURL(String URLString,int Timeout,String FileNamePrefix)
         {
@@ -372,6 +378,7 @@ public class CSUtils {
         
         public boolean read()
         {            
+            HttpURLConnection connection=null;
             long startTime=new Date().getTime();
             error=null;
             
@@ -383,7 +390,6 @@ public class CSUtils {
         
                 url = new URL(urlString);
                 
-                HttpURLConnection connection;
 
                 connection = (HttpURLConnection)url.openConnection();
                 connection.setConnectTimeout(timeoutConnect);
@@ -410,6 +416,8 @@ public class CSUtils {
                 
                 RandomAccessFile aFile = null;
                 StringBuilder stringBuilder=null;
+                
+                responseCode=connection.getResponseCode();
                 
                 if(fileNamePrefix != null)                                      // mime type is returned only for files
                 {
@@ -464,10 +472,29 @@ public class CSUtils {
             } 
             catch (Exception ex) 
             {
+                if(connection != null)
+                {
+                    try {
+                        responseCode=connection.getResponseCode();
+                    } catch (IOException ex1) {
+                    }
+                }
+                
+                if(responseCode > 0)
+                {
+                    ResponseMessage="Network request: " + urlString + " - FAILURE, Response code: " + responseCode;
+                }
+                else
+                {
+                    ResponseMessage="Network request: " + urlString + " - FAILURE, Error: " + ex.getMessage();                    
+                }
+                log.error(ResponseMessage);
                 error=ex.getClass().getName() + " " + ex.getMessage();
                 return false;
             }
             
+            ResponseMessage="Network request: " + urlString + " - SUCCESS, Response code: " + responseCode + ", Size: " + contents.length();
+            log.info(ResponseMessage);
             return true;
         }
         
