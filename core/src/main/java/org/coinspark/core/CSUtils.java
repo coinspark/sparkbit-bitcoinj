@@ -344,10 +344,10 @@ public class CSUtils {
         public int timeout;
         public int timeoutConnect;
         public URL url;
-        public String contents;
+        public String contents="";
         public String header;
         public String error;
-        public int size;
+        public int size=0;
         public String method;
         public String postRequest="";
         public int responseCode=0;
@@ -493,7 +493,14 @@ public class CSUtils {
                 return false;
             }
             
-            ResponseMessage="Network request: " + urlString + " - SUCCESS, Response code: " + responseCode + ", Size: " + contents.length();
+            if(responseCode != 200)
+            {
+                ResponseMessage="Network request: " + urlString + " - FAILURE, Response code: " + responseCode;
+            }
+            else
+            {
+                ResponseMessage="Network request: " + urlString + " - SUCCESS, Content size: " + size;
+            }
             log.info(ResponseMessage);
             return true;
         }
