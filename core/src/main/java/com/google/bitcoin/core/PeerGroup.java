@@ -1535,9 +1535,21 @@ public class PeerGroup extends AbstractExecutionThreadService implements Transac
         } catch (ProtocolException ex) {
             java.util.logging.Logger.getLogger(PeerGroup.class.getName()).log(Level.SEVERE, null, ex);
         }
+        
+        /* CSPK-mike START */        
+        if(block != null)
+        {
+            if(!block.getHash().equals(blockHash))
+            {
+                return null;
+            }
+        }
+        /* CSPK-mike END */        
+        
         return block;
     }
     
+    /* CSPK-mike START */        
     /**
      * Returns Block from the network using given height
      * Uses chain block hash store. If hash store is not set always return null 
@@ -1556,6 +1568,7 @@ public class PeerGroup extends AbstractExecutionThreadService implements Transac
         
         return getBlock(blockHash);
     }
+    /* CSPK-mike END */        
     
     
 }
