@@ -5763,7 +5763,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
         
         
         s+="\n";
-        
+/*        
         s+="Unspent TxOuts\n\n";
         Map<CSTransactionOutput,Map<Integer,CSBalance>>  mapTxOuts=CS.getAllAssetTxOuts();
         
@@ -5778,9 +5778,9 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
         }        
         
         s+="\n";
-
+*/
         
-/*
+
         String pdfPath;
         String folderPath="/home/mike/tmp/pdfs/";
         String logFile="/home/mike/tmp/pdfs/pdfparser.log";
@@ -5794,7 +5794,6 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
         }
  
         for (int i = 0; i < listOfFiles.length; i++) 
-        if(i != 359)
 //        for (int i = 0; i < 10; i++) 
         { 
             if (listOfFiles[i].isFile()) 
@@ -5824,7 +5823,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
                             Date startTime=new Date();
                             String result= "SUCCESS";
                             boolean rerun=true;
-                            boolean logObjects=true;
+                            boolean logObjects=false;
                             while(rerun)
                             {
                                 rerun=false;
@@ -5857,6 +5856,24 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
                                                 }
                                                 next=raw.length;
                                             }
+                                            else
+                                            {
+                                                CSPDFParser.CSPDFObjectEmbedded embedded=obj.hasEmbeddedFileOrURL();
+                                                if(embedded != CSPDFParser.CSPDFObjectEmbedded.NONE)
+                                                {
+                                                    try {
+                                                        lFile.writeBytes("\n\n" + String.format("%03d: (%06x) !!!Embedded ",i,obj.offset) + embedded + "\n\n");
+                                                    } catch (IOException ex) {
+                                                        java.util.logging.Logger.getLogger(Wallet.class.getName()).log(Level.SEVERE, null, ex);
+                                                    }
+                                                    if(!logObjects)
+                                                    {
+                                                        rerun=true;
+                                                        logObjects=true;                                                        
+                                                        next=raw.length;
+                                                    }                                                    
+                                                }
+                                            }
                                         }
                                         else
                                         {
@@ -5882,7 +5899,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
 //                    CS.log.info(s1);        
                     log.debug(s1);
                     try {
-                        lFile.writeBytes("\n" + s1 + "\n\n");
+                        lFile.writeBytes("\n" + s1 + "\n");
                     } catch (IOException ex) {
                         java.util.logging.Logger.getLogger(Wallet.class.getName()).log(Level.SEVERE, null, ex);
                     }
@@ -5891,7 +5908,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
             }
         
         }
-*/
+
         
 /*        
         s+="Asset totals (spendable)\n\n";

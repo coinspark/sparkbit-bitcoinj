@@ -180,6 +180,14 @@ public class CSPDFParser {
         REFERENCE,
     }
     
+    public enum CSPDFObjectEmbedded{
+        NONE,
+        STRANGE,
+        FILE,
+        UNCLEAR,
+        URL,
+    }
+    
     private byte [] raw;
     
     public CSPDFParser(byte [] Raw)
@@ -274,7 +282,78 @@ public class CSPDFParser {
         {
             return toString("");            
         }
-        
+  
+        public CSPDFObjectEmbedded hasEmbeddedFileOrURL()
+        {
+            CSPDFObjectEmbedded result=CSPDFObjectEmbedded.NONE;            
+            
+            if((type == CSPDFObjectType.STREAM) || (type == CSPDFObjectType.DICTIONARY))
+            {
+                if(children != null)
+                {
+                    boolean isKey=true;
+                    boolean isFS=false;
+                    for(CSPDFObject subObject : children)
+                    {
+                        if(isKey)
+                        {
+                            if(subObject.type == CSPDFObjectType.NAME)
+                            {
+                                if("EF".equals(subObject.toRawString()))
+                                {
+                                    result=CSPDFObjectEmbedded.FILE;
+                                }
+                                if("FS".equals(subObject.toRawString()))
+                                {
+                                    isFS=true;
+                                }
+                            }                            
+                            else
+                            {
+                                return CSPDFObjectEmbedded.STRANGE;
+                            }
+                        }
+                        else
+                        {
+                            if(isFS)
+                            {
+                                if(subObject.type == CSPDFObjectType.NAME)
+                                {
+                                    if("URL".equals(subObject.toRawString()))
+                                    {
+                                        return CSPDFObjectEmbedded.URL;
+                                    }                                    
+                                }                                
+                                else
+                                {
+                                    return CSPDFObjectEmbedded.UNCLEAR;
+                                }
+                            }
+                            else
+                            {
+                                CSPDFObjectEmbedded subResult=subObject.hasEmbeddedFileOrURL();
+                                switch(subResult)
+                                {
+                                    case STRANGE:
+                                    case UNCLEAR:
+                                    case URL:
+                                        return subResult;
+                                    case FILE:
+                                        result=subResult;
+                                        break;
+                                }
+                            }
+                            
+                            isFS=false;
+                        }
+                        isKey= !isKey;
+                    }
+                }                
+            }
+            
+            return result;
+        }
+  
         public String toString(String Prefix)
         {
             String s="";
@@ -310,6 +389,7 @@ public class CSPDFParser {
                 }
             }
             
+/*            
             if(type==CSPDFObjectType.REFERENCE)
             {
                 CSPDFObject deref=dereference();
@@ -333,6 +413,7 @@ public class CSPDFParser {
                     s+=" --> " + "NULL!!!";
                 }
             }
+            */
             return s;
         }
         

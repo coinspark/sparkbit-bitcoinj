@@ -45,6 +45,9 @@ import java.net.URL;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.Random;
+import java.util.logging.Level;
+import java.util.logging.Logger;
+import org.coinspark.core.CSPDFParser;
 import org.coinspark.core.CSUtils;
 import org.coinspark.protocol.CoinSparkAssetRef;
 import org.coinspark.protocol.CoinSparkGenesis;
@@ -82,6 +85,14 @@ public class CSAsset {
         DUPLICATE,                                                              // There is Asset with the same keys, this one should be deleted after balances db updated
     }
     
+    public enum CSAssetContractState{
+        UNKNOWN,
+        CANNOT_PARSE,                                                           // Cannot parse PDF
+        POSSIBLE_EMBEDDED_URL,                                                  // Embedded file found in PDF - embedded URL can be hidden inside, or unclear FS key
+        EMBEDDED_URL,                                                           // Embedded URL found
+        OK,                                                                     // Contract looks OK
+    }
+    
     private CSAssetState assetState;                                
     private CSAssetState assetValidationState;
       
@@ -102,6 +113,7 @@ public class CSAsset {
     }
     
     private CSAssetSource assetSource;
+    private CSAssetContractState assetContractState=CSAssetContractState.UNKNOWN;                                
     
     // A flag indicating whether the asset should be displayed to the user.
     private boolean visible = true;
@@ -278,6 +290,7 @@ public class CSAsset {
     
     public CSAsset.CSAssetState getAssetState(){return assetState;}                
     public CSAsset.CSAssetSource getAssetSource(){return assetSource;}
+    public CSAsset.CSAssetContractState getAssetContractState(){return assetContractState;}
     public int     getAssetID(){return assetID;}                
     public Date    getDateCreation(){return dateCreation;}
     public boolean isVisible(){return visible;}
@@ -738,6 +751,56 @@ public class CSAsset {
     
     private boolean validateContract(byte [] contractContent)
     {
+        CSPDFParser parser=new CSPDFParser(contractContent);
+
+        assetContractState=CSAssetContractState.OK;
+
+        int next=0;
+        while(next<contractContent.length)
+        {
+            CSPDFParser.CSPDFObject obj;
+            try 
+            {
+                obj = parser.getObject(next);
+                if(obj != null)
+                {
+                    next=obj.offsetNext;
+                    if(obj.type == CSPDFParser.CSPDFObjectType.STRANGE)
+                    {
+                        assetContractState=CSAssetContractState.CANNOT_PARSE;
+                        return false;                        
+                    }
+                    else
+                    {
+                        CSPDFParser.CSPDFObjectEmbedded embedded=obj.hasEmbeddedFileOrURL();
+                        switch(embedded)
+                        {
+                            case NONE:
+                                break;
+                            case STRANGE:
+                                assetContractState=CSAssetContractState.CANNOT_PARSE;
+                                return false;                        
+                            case UNCLEAR:
+                            case FILE:
+                                assetContractState=CSAssetContractState.POSSIBLE_EMBEDDED_URL;
+                                break;
+                            case URL:
+                                assetContractState=CSAssetContractState.EMBEDDED_URL;
+                                return false;
+                        }                                    
+                    }
+                }
+                else
+                {
+                    next=contractContent.length;                        
+                }
+
+            } catch (Exception ex) {
+                Logger.getLogger(CSAsset.class.getName()).log(Level.SEVERE, null, ex);
+            }
+            
+        }
+        
         return true;
     }
     
@@ -756,7 +819,7 @@ public class CSAsset {
         byte [] contractContent=readContract();
     
         if(!validateContract(contractContent))
-        {
+        {            
             assetValidationState = CSAssetState.CONTRACT_INVALID;
             return false;
         }
@@ -1007,6 +1070,10 @@ public class CSAsset {
                 jvalue=jresult.get("asset_source");         
                 if(jvalue != null){
                     assetSource=CSAssetSource.valueOf(jvalue.getAsString());
+                }
+                jvalue=jresult.get("asset_contract_state");          
+                if(jvalue != null){
+                    assetContractState=CSAssetContractState.valueOf(jvalue.getAsString());
                 }
                 jvalue=jresult.get("gen_txid");             
                 if(jvalue != null){
@@ -1390,6 +1457,9 @@ public class CSAsset {
         }
         if(assetSource != null){
             jobject.addProperty("asset_source",             assetSource.toString());
+        }
+        if(assetContractState != null){
+            jobject.addProperty("asset_contract_state",     assetContractState.toString());
         }
         if(genTxID != null){
             jobject.addProperty("gen_txid",                 genTxID);
