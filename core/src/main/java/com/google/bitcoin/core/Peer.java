@@ -555,7 +555,20 @@ public class Peer extends PeerSocketHandler {
             fTx = tx;
             // Label the transaction as coming in from the P2P network (as opposed to being created by us, direct import,
             // etc). This helps the wallet decide how to risk analyze it later.
-            fTx.getConfidence().setSource(TransactionConfidence.Source.NETWORK);
+            
+// CSPK-Mike Start
+                                                                                // Change source only for transactions not created by us
+                                                                                // This may happen if inventory message was received before tx was added to memory pool
+                                                                                // And this may happen if transaction was broadcasted to one peer, but i took too much time
+                                                                                // to broadcast it to others
+                                                                                // If we set NETWORK source to SELF transactions change will become unspendable
+                                                                                // before confirmation in block
+                                                                                // see DefaultCoinSelector.isSelectable()
+            if(fTx.getConfidence().getSource() != TransactionConfidence.Source.SELF)
+// CSPK-Mike END                            
+            {
+                fTx.getConfidence().setSource(TransactionConfidence.Source.NETWORK);
+            }
             if (maybeHandleRequestedData(fTx)) {
             log.info("!!!! processTransaction HANDLED REQUEST " + tx.getHashAsString());
                 return;

@@ -5778,14 +5778,24 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
         }        
         
         s+="\n";
+
         
-/*        
+/*
         String pdfPath;
         String folderPath="/home/mike/tmp/pdfs/";
+        String logFile="/home/mike/tmp/pdfs/pdfparser.log";
         File folder = new File(folderPath);
         File[] listOfFiles = folder.listFiles(); 
+        RandomAccessFile lFile=null;
+        try {
+            lFile = new RandomAccessFile(logFile, "rw");
+        } catch (FileNotFoundException ex) {
+            java.util.logging.Logger.getLogger(Wallet.class.getName()).log(Level.SEVERE, null, ex);
+        }
  
         for (int i = 0; i < listOfFiles.length; i++) 
+        if(i != 359)
+//        for (int i = 0; i < 10; i++) 
         { 
             if (listOfFiles[i].isFile()) 
             {
@@ -5814,7 +5824,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
                             Date startTime=new Date();
                             String result= "SUCCESS";
                             boolean rerun=true;
-                            boolean logObjects=false;
+                            boolean logObjects=true;
                             while(rerun)
                             {
                                 rerun=false;
@@ -5828,7 +5838,12 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
                                         {
                                             if(logObjects)
                                             {
-                                                s2+=obj.toString() + "\n";
+                                                try {
+                                                    lFile.writeBytes(obj.toString(String.format("%3d: ",i)) + "\n");
+                                                } catch (IOException ex) {
+                                                    java.util.logging.Logger.getLogger(Wallet.class.getName()).log(Level.SEVERE, null, ex);
+                                                }
+//                                                s2+=obj.toString() + "\n";
                                             }
                     //                        s+=obj.toString() + "\n";
                                             next=obj.offsetNext;
@@ -5864,13 +5879,19 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
                         s1="ID: " + i + ", File: " + pdfPath + " Error: Cannot get file size";
                     }
                     s+=s1+"\n";
-                    CS.log.info(s1);        
+//                    CS.log.info(s1);        
+                    log.debug(s1);
+                    try {
+                        lFile.writeBytes("\n" + s1 + "\n\n");
+                    } catch (IOException ex) {
+                        java.util.logging.Logger.getLogger(Wallet.class.getName()).log(Level.SEVERE, null, ex);
+                    }
                     
                 }
             }
         
         }
-  */
+*/
         
 /*        
         s+="Asset totals (spendable)\n\n";
