@@ -751,6 +751,12 @@ public class CSAsset {
     
     private boolean validateContract(byte [] contractContent)
     {
+        if(contractContent == null)
+        {
+            assetContractState=CSAssetContractState.CANNOT_PARSE;
+            return false;                                    
+        }
+        
         CSPDFParser parser=new CSPDFParser(contractContent);
 
         assetContractState=CSAssetContractState.OK;
