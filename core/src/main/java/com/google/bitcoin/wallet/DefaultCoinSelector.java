@@ -76,7 +76,7 @@ public class DefaultCoinSelector implements CoinSelector {
     }
 
     public static boolean isSelectable(Transaction tx) {
-	return DefaultCoinSelector.isSelectable(tx, 1);
+	return DefaultCoinSelector.isSelectable(tx, 0); // original value was 1
     }
     
     /*
