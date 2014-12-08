@@ -75,9 +75,13 @@ public class DefaultCoinSelector implements CoinSelector {
         return isSelectable(tx);
     }
 
+    /* CSPK-Simon START */
+    
     public static boolean isSelectable(Transaction tx) {
-	return DefaultCoinSelector.isSelectable(tx, 0); // original value was 1
+	return DefaultCoinSelector.isSelectable(tx, 1);                         // original value was 2
     }
+    
+    /* CSPK-Simon END */
     
     /*
     Refactored so default behaviour remains the same, but we can reduce number of required broadcast peers.
@@ -92,6 +96,6 @@ public class DefaultCoinSelector implements CoinSelector {
                confidence.getSource().equals(TransactionConfidence.Source.SELF) &&
                // In regtest mode we expect to have only one peer, so we won't see transactions propagate.
                // TODO: The value 1 below dates from a time when transactions we broadcast *to* were counted, set to 0
-               (confidence.numBroadcastPeers() > requiredNumBroadcastPeers || tx.getParams() == RegTestParams.get());
+               (confidence.numBroadcastPeers() >= requiredNumBroadcastPeers || tx.getParams() == RegTestParams.get());
     }
 }
