@@ -31,6 +31,7 @@ import java.io.RandomAccessFile;
 import java.math.BigInteger;
 import java.net.HttpURLConnection;
 import java.net.InetSocketAddress;
+import java.net.MalformedURLException;
 import java.net.SocketAddress;
 import java.net.URL;
 import java.net.URLConnection;
@@ -44,6 +45,8 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.TimeZone;
+import java.util.logging.Level;
+import javax.net.ssl.HttpsURLConnection;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -378,9 +381,9 @@ public class CSUtils {
         
         public boolean read()
         {            
-            HttpURLConnection connection=null;
             long startTime=new Date().getTime();
             error=null;
+            InputStream reader=null;
             
             try {
                 if( (urlString == null) || urlString.isEmpty())
@@ -389,44 +392,118 @@ public class CSUtils {
                 }
         
                 url = new URL(urlString);
-                
+            } 
+            catch (Exception ex) 
+            {
+                ResponseMessage="Network request: " + urlString + " - FAILURE, Error: " + ex.getMessage();                    
+                log.error(ResponseMessage);
+                error=ex.getClass().getName() + " " + ex.getMessage();
+            } 
+            
 
-                connection = (HttpURLConnection)url.openConnection();
-                connection.setConnectTimeout(timeoutConnect);
-                connection.setReadTimeout(timeout);
                 
-                connection.setRequestMethod(method);
-                if(method.equals("POST"))
+                
+            if("https".equals(url.getProtocol()))
+            {
+                HttpsURLConnection connection=null;
+                try
                 {
-                    connection.setDoOutput(true);
-                    additionalHeaders.put("Content-Length",Integer.toString(postRequest.length()));
-                    for (Map.Entry<String, String> entry : additionalHeaders.entrySet()) 
+
+                    connection = (HttpsURLConnection)url.openConnection();
+                    connection.setConnectTimeout(timeoutConnect);
+                    connection.setReadTimeout(timeout);
+
+                    connection.setRequestMethod(method);
+                    if(method.equals("POST"))
                     {
-                        connection.setRequestProperty(entry.getKey(),entry.getValue());
-                    }        
-                    
-                    OutputStreamWriter writer = new OutputStreamWriter(connection.getOutputStream());
-                    writer.write(postRequest);
-                    writer.flush();                
-                    writer.close();
-                }
-                
-                InputStream reader=connection.getInputStream();
-                
-                
-                RandomAccessFile aFile = null;
-                StringBuilder stringBuilder=null;
-                
-                responseCode=connection.getResponseCode();
-                
-                if(fileNamePrefix != null)                                      // mime type is returned only for files
-                {
+                        connection.setDoOutput(true);
+                        additionalHeaders.put("Content-Length",Integer.toString(postRequest.length()));
+                        for (Map.Entry<String, String> entry : additionalHeaders.entrySet()) 
+                        {
+                            connection.setRequestProperty(entry.getKey(),entry.getValue());
+                        }        
+
+                        OutputStreamWriter writer = new OutputStreamWriter(connection.getOutputStream());
+                        writer.write(postRequest);
+                        writer.flush();                
+                        writer.close();
+                    }
+
+                    reader=connection.getInputStream();
+                    responseCode=connection.getResponseCode();
                     mimeType = CSUtils.CSMimeType.fromType(connection.getHeaderField("Content-Type"));            
                     if(mimeType == null)
                     {
                         throw new Exception("Cannot connect to server");
                     }
-                    
+                }
+                catch (Exception ex) 
+                {
+                    if(connection != null)
+                    {
+                        try {
+                            responseCode=connection.getResponseCode();
+                        } catch (IOException ex1) {
+                        }
+                    }
+                } 
+            }
+            else
+            {
+                HttpURLConnection connection=null;
+                try {
+                    connection = (HttpURLConnection)url.openConnection();
+                    connection.setConnectTimeout(timeoutConnect);
+                    connection.setReadTimeout(timeout);
+
+                    connection.setRequestMethod(method);
+                    if(method.equals("POST"))
+                    {
+                        connection.setDoOutput(true);
+                        additionalHeaders.put("Content-Length",Integer.toString(postRequest.length()));
+                        for (Map.Entry<String, String> entry : additionalHeaders.entrySet()) 
+                        {
+                            connection.setRequestProperty(entry.getKey(),entry.getValue());
+                        }        
+
+                        OutputStreamWriter writer = new OutputStreamWriter(connection.getOutputStream());
+                        writer.write(postRequest);
+                        writer.flush();                
+                        writer.close();
+                    }
+
+                    reader=connection.getInputStream();
+                    responseCode=connection.getResponseCode();
+                    mimeType = CSUtils.CSMimeType.fromType(connection.getHeaderField("Content-Type"));            
+                    if(mimeType == null)
+                    {
+                        throw new Exception("Cannot connect to server");
+                    }
+                }
+                catch (Exception ex) 
+                {
+                    if(connection != null)
+                    {
+                        try {
+                            responseCode=connection.getResponseCode();
+                        } catch (IOException ex1) {
+                        }
+                    }
+                } 
+            }   
+                        
+            try
+            {
+                if(reader == null)
+                {
+                    throw new Exception("Cannot connect to server");                    
+                }
+                RandomAccessFile aFile = null;
+                StringBuilder stringBuilder=null;
+                
+                
+                if(fileNamePrefix != null)                                      // mime type is returned only for files
+                {                    
                     fileName=fileNamePrefix+mimeType.getExtension();
                     File bdbFile = new File(fileName);
 
@@ -471,15 +548,7 @@ public class CSUtils {
                 }
             } 
             catch (Exception ex) 
-            {
-                if(connection != null)
-                {
-                    try {
-                        responseCode=connection.getResponseCode();
-                    } catch (IOException ex1) {
-                    }
-                }
-                
+            {                                
                 if(responseCode > 0)
                 {
                     ResponseMessage="Network request: " + urlString + " - FAILURE, Response code: " + responseCode;
