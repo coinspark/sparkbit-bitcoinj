@@ -34,4 +34,6 @@ public enum CSEventType {
     ASSET_VALIDATION_COMPLETED,                                                 // payload: int assetid
     BALANCE_VALID,                                                              // Valid non-zero balance calculated, payload CSBalance
     ASSET_VISIBILITY_CHANGED, // payload: int assetid
+    MESSAGE_RETRIEVAL_STARTED,                                                  // payload: String TxID
+    MESSAGE_RETRIEVAL_COMPLETED,                                                // payload: String TxID
 }

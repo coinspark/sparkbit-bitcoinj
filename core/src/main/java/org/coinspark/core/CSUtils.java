@@ -44,9 +44,11 @@ import java.util.Arrays;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
+import java.util.Random;
 import java.util.TimeZone;
 import java.util.logging.Level;
 import javax.net.ssl.HttpsURLConnection;
+import org.coinspark.protocol.CoinSparkMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -55,6 +57,97 @@ import org.slf4j.LoggerFactory;
 public class CSUtils {
 
     private static final Logger log = LoggerFactory.getLogger(CSUtils.class);
+    
+    public enum CSServerError {
+
+        NOERROR(                                         0),
+
+        UNKNOWN(                                         1),
+        
+        RESPONSE_NOT_OBJECT(                           100),
+        RESPONSE_WRONG_ID(                             101),
+        RESPONSE_WRONG_METHOD(                         102),
+        RESPONSE_PARSE_ERROR(                          103),
+        RESPONSE_RESULT_NOT_FOUND(                     104),
+        RESPONSE_RESULT_NOT_OBJECT(                    105),
+        RESPONSE_INVALID(                              106),
+        RESPONSE_HASH_MISMATCH(                        107),
+        
+        CANNOT_SIGN(                                   150),
+        
+        METADATA_ENCODE_ERROR(                         160),
+        
+        SERVER_NOT_FOUND(                              190),
+
+        
+        
+        SERVER_REDIRECT(                               300),
+        SERVER_HTTP_ERROR(                             400),
+        SERVER_FATAL_ERROR(                            500),
+        SERVER_CANNOT_CONNECT(                         501),        
+        
+        
+        PARSE_ERROR(                                -32700),
+        INVALID_REQUEST(                            -32600),
+        METHOD_NOT_FOUND(                           -32601),
+        INVALID_PARAMS(                             -32602),
+        INTERNAL_ERROR(                             -32603),    
+        ASSET_NOT_FOUND(                            -10000),
+        TXOUT_NOT_FOUND(                            -10001),    
+        SENDER_NOT_ACCEPTED(                        -11000),
+        SENDER_IS_SUSPENDED(                        -11001),
+        SENDER_NETWORK_NOT_ACCEPTABLE(              -11002),
+        SENDER_IP_NOT_ACCEPTED(                     -11003),
+        SENDER_IP_IS_SUSPENDED(                     -11004),    
+        NO_PUBLIC_MESSAGES(                         -11010),
+        ONLY_PUBLIC_MESSAGES(                       -11011),    
+        TOO_MANY_RECIPIENTS(                        -11020),
+        RECIPIENT_NOT_ACCEPTED_ON_CREATE(           -11021),
+        RECIPIENT_IS_SUSPENDED_ON_CREATE(           -11022),
+        RECIPIENT_IP_NOT_ACCEPTED_ON_CREATE(        -11023),
+        RECIPIENT_IP_IS_SUSPENDED_ON_CREATE(        -11024),    
+        DURATION_NOT_ACCEPTABLE(                    -11030),    
+        SEED_NOT_ACCEPTABLE(                        -11040),    
+        TOO_MANY_MESSAGE_PARTS(                     -11050),
+        TOTAL_MESSAGE_TOO_LARGE(                    -11051),
+        MIME_TYPE_NOT_ACCEPTABLE(                   -11052),
+        FILE_NAME_NOT_ACCEPTABLE(                   -11053),
+        CONTENT_TOO_LARGE(                          -11054),   
+        TXID_INVALID(                               -11080),    
+        TX_MESSAGE_UNKNOWN(                         -12000),
+        TX_MESSAGE_PENDING(                         -12001),
+        TX_MESSAGE_EXPIRED(                         -12002),    
+        RECIPIENT_NOT_ACCEPTED(                     -12010),
+        RECIPIENT_IS_SUSPENDED(                     -12011),
+        RECIPIENT_NETWORK_NOT_ACCEPTABLE(           -12012),
+        RECIPIENT_IP_NOT_ACCEPTED(                  -12013),
+        RECIPIENT_IP_IS_SUSPENDED(                  -12014),
+
+        NONCE_NOT_FOUND(                            -13000),
+
+        SIGNATURE_INCORRECT(                        -13010);
+        
+        private int code;
+
+        CSServerError(int Code) {
+            this.code = Code;
+        }
+        
+        public int getCode() {
+            return code;
+        }
+
+        public static CSServerError fromCode(int Code) {
+                for (CSServerError se : CSServerError.values()) {
+                    if (se.getCode() == Code) {
+                        return se;
+                    }
+                }
+
+            return UNKNOWN;
+        }
+    }
+    
     public enum CSMimeType {
 
         /* Preferred Common Types */
@@ -293,6 +386,18 @@ public class CSUtils {
         return hs;
     }
     
+    public static void shuffleArray(String [] arr)
+    {
+        Random rnd = new Random();
+        for (int i = arr.length - 1; i > 0; i--)
+        {
+            int index = rnd.nextInt(i + 1);
+            String a = arr[index];
+            arr[index] = arr[i];
+            arr[i] = a;
+        }
+    }
+    
     public static String addHttpIfMissing(String URL)
     {
         if(URL.indexOf("://")>0)
@@ -335,8 +440,67 @@ public class CSUtils {
         reader.read();
         return reader;
     }
+
     
-    
+    public static boolean setDeliveryServer(String URLString,CoinSparkMessage Message)
+    {
+        if( (URLString == null) || URLString.isEmpty())
+        {
+            return false;
+        }
+        if(!URLString.contains("://"))
+        {
+            URLString="http://" + URLString;
+        }
+        
+        try {
+            URL url = new URL(URLString);
+            if("https".equals(url.getProtocol()))
+            {
+                Message.setUseHttps(true);
+            }            
+            else
+            {
+                Message.setUseHttps(false);
+            }
+            
+            String host=url.getHost();
+            if(url.getPort()>0)
+            {
+                host+=":"+url.getPort();
+            }
+            Message.setServerHost(host);
+            
+            String path=url.getPath();
+            if((path.length()>"coinspark/".length()) && ("coinspark/".equals(path.substring(0, "coinspark/".length()))))
+            {
+                Message.setUsePrefix(true);
+                path=path.substring("coinspark/".length());
+            }
+            else
+            {
+                Message.setUsePrefix(false);
+            }
+            
+            path=path.trim();
+            int from=0;
+            int to=path.length();
+            while((from<to) && path.substring(from,from+1).equals("/"))
+            {
+                from++;
+            }
+            while((from<to) && path.substring(to-1,to).equals("/"))
+            {
+                to--;
+            }
+            Message.setServerPath(path.substring(from,to));
+            
+        } catch (MalformedURLException ex) {
+            return false;
+        }
+        
+        return true;
+    }
     
     public class CSDownloadedURL
     {        
@@ -390,7 +554,11 @@ public class CSUtils {
                 {
                     throw new Exception("Empty URL string");
                 }
-        
+
+                if(!urlString.contains("://"))
+                {
+                    urlString="http://" + urlString;
+                }
                 url = new URL(urlString);
             } 
             catch (Exception ex) 

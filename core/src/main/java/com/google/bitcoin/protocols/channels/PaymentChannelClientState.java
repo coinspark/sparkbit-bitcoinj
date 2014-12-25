@@ -35,6 +35,8 @@ import java.math.BigInteger;
 import java.util.List;
 
 import static com.google.common.base.Preconditions.*;
+import java.util.logging.Level;
+import org.coinspark.core.CSExceptions;
 
 /**
  * <p>A payment channel is a method of sending money to someone such that the amount of money you send can be adjusted
@@ -253,7 +255,11 @@ public class PaymentChannelClientState {
         Wallet.SendRequest req = Wallet.SendRequest.forTx(template);
         req.coinSelector = AllowUnconfirmedCoinSelector.get();
         editContractSendRequest(req);
-        wallet.completeTx(req);
+        try {
+            wallet.completeTx(req);
+        } catch (CSExceptions.CannotEncode ex) {
+            java.util.logging.Logger.getLogger(PaymentChannelClientState.class.getName()).log(Level.SEVERE, null, ex);
+        }
         BigInteger multisigFee = req.fee;
         multisigContract = req.tx;
         // Build a refund transaction that protects us in the case of a bad server that's just trying to cause havoc

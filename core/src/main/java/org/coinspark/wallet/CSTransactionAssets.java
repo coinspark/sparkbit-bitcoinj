@@ -23,12 +23,14 @@
  */
 package org.coinspark.wallet;
 
+import com.google.bitcoin.core.Address;
+import com.google.bitcoin.core.ECKey;
 import com.google.bitcoin.core.Sha256Hash;
 import com.google.bitcoin.core.Transaction;
 import com.google.bitcoin.core.TransactionInput;
-import com.google.bitcoin.core.TransactionOutPoint;
 import com.google.bitcoin.core.TransactionOutput;
 import com.google.bitcoin.core.Wallet;
+import com.google.bitcoin.script.Script;
 import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.Arrays;
@@ -37,6 +39,7 @@ import java.util.Map;
 import org.coinspark.protocol.CoinSparkAssetRef;
 import org.coinspark.protocol.CoinSparkBase;
 import org.coinspark.protocol.CoinSparkGenesis;
+import org.coinspark.protocol.CoinSparkMessage;
 import org.coinspark.protocol.CoinSparkTransfer;
 import org.coinspark.protocol.CoinSparkTransferList;
 
@@ -44,6 +47,7 @@ public class CSTransactionAssets {
     
     private CoinSparkGenesis genesis = null;
     private CoinSparkTransferList transfers = null;
+    private CoinSparkMessage message=null;
     private Transaction parentTransaction;
 
     public CSTransactionAssets()
@@ -79,6 +83,13 @@ public class CSTransactionAssets {
             {
                 transfers=null;
             }
+            
+            message=new CoinSparkMessage();
+            if(!message.decode(txnMetaData,  ParentTx.getOutputs().size()))
+            {
+                message=null;
+            }
+            
         }
         
     }
@@ -98,6 +109,7 @@ public class CSTransactionAssets {
     {
         CSAssetDatabase assetDB=wallet.CS.getAssetDB();
         CSBalanceDatabase balanceDB=wallet.CS.getBalanceDB();
+        CSMessageDatabase messageDB=wallet.CS.getMessageDB();
         
         if(assetDB == null)
         {
@@ -233,7 +245,10 @@ public class CSTransactionAssets {
             }
         }
         CSAsset found=null;
-        
+
+        String [] messageAddresses=new String[parentTransaction.getOutputs().size()];
+        int addressCount=0;
+                
         output_id=0;
         for (TransactionOutput output : parentTransaction.getOutputs())
         {
@@ -348,9 +363,65 @@ public class CSTransactionAssets {
                         }
                     }
                 }
+                
+                if(message != null)
+//                if(false)
+                {                    
+                    if(message.hasOutput(output_id))
+                    {
+                        ECKey key=null;
+                        Script connectedScript = output.getScriptPubKey();
+                        if (connectedScript.isSentToAddress()) {
+                            byte[] addressBytes = connectedScript.getPubKeyHash();
+                            key=wallet.findKeyFromPubHash(addressBytes);
+                        } 
+                        else 
+                        {
+                            if (connectedScript.isSentToRawPubKey()) 
+                            {
+                                byte[] pubkeyBytes = connectedScript.getPubKey();
+                                key=wallet.findKeyFromPubKey(pubkeyBytes);
+                            }
+                        }
+                        if(key != null)
+                        {
+                            Address pubKeyHash=new Address(wallet.getNetworkParameters(), key.getPubKeyHash());
+                            String address=pubKeyHash.toString();
+                            boolean addressFound=false;
+                            for(String addressToCheck : messageAddresses)
+                            {
+                                if(addressToCheck != null)
+                                {
+                                    if(!addressFound)
+                                    {
+                                        if(addressToCheck.equals(address))
+                                        {
+                                            addressFound=true;
+                                        }
+                                    }
+                                }
+                            }
+                            if(!addressFound)
+                            {
+                                messageAddresses[addressCount]=address;
+                                addressCount++;                                
+                            }
+                        }
+                    }
+                }
+                
             }
             output_id++;
         }        
+        
+        
+        if(addressCount>0)
+        {            
+            if(messageDB != null)
+            {
+                messageDB.insertReceivedMessage(hash.toString(), parentTransaction.getOutputs().size(), message, Arrays.copyOf(messageAddresses, addressCount));
+            }
+        }
         
 /*        
         if(retrieveInputBalances)

@@ -63,20 +63,28 @@ import static com.google.bitcoin.core.Utils.bitcoinValueToFriendlyString;
 import static com.google.bitcoin.core.Utils.bitcoinValueToPlainString;
 import com.google.bitcoin.script.ScriptOpCodes;
 import static com.google.common.base.Preconditions.*;
+import com.sun.org.apache.xml.internal.security.utils.Base64;
 import java.util.logging.FileHandler;
 import java.util.logging.Handler;
 import java.util.logging.Level;
+import org.coinspark.core.CSExceptions;
 import org.coinspark.core.CSLogger;
 import org.coinspark.core.CSPDFParser;
 import org.coinspark.core.CSUtils;
 import org.coinspark.protocol.CoinSparkBase;
+import org.coinspark.protocol.CoinSparkDomainPath;
+import org.coinspark.protocol.CoinSparkExceptions;
 import org.coinspark.protocol.CoinSparkIORange;
+import org.coinspark.protocol.CoinSparkMessage;
+import org.coinspark.protocol.CoinSparkMessagePart;
 import org.coinspark.protocol.CoinSparkTransfer;
 import org.coinspark.protocol.CoinSparkTransferList;
 import org.coinspark.wallet.CSAsset;
 import org.coinspark.wallet.CSAssetDatabase;
 import org.coinspark.wallet.CSBalance;
 import org.coinspark.wallet.CSBalanceDatabase;
+import org.coinspark.wallet.CSMessage;
+import org.coinspark.wallet.CSMessageDatabase;
 import org.coinspark.wallet.CSTransactionAssets;
 import org.coinspark.wallet.CSTransactionOutput;
 import org.jboss.netty.logging.Log4JLoggerFactory;
@@ -1813,6 +1821,14 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
             
         }
 
+        private CoinSparkMessagePart[] messageParts=null;
+        private String[] deliveryServers=null;
+        private int KeepSeconds=86400;
+        private CSMessage messageToCreate=null;
+        private CSMessage.CSNonce createNonce=null;
+        private CoinSparkMessage message=null;
+        
+        
         private ArrayList<CSAssetTransfer> assetTransfers=null;
         private int[] assetsEncoded;
         private BigInteger assetFee = BigInteger.ZERO;
@@ -1822,6 +1838,15 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
         {
             assetTransfers.add(new CSAssetTransfer(OutputID, AssetID, Value,split));
         }
+
+        public void setMessage(CoinSparkMessagePart [] MessageParts,String [] DeliveryServers)
+        {
+            messageParts=MessageParts;
+            deliveryServers=DeliveryServers;
+        }
+        
+        
+        
         
         /**
          * Creates new asset transfer transaction.
@@ -1950,7 +1975,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
      * coins as spent until commitTx is called on the result.
      * @throws InsufficientMoneyException if the request could not be completed due to not enough balance.
      */
-    public Transaction createSend(Address address, BigInteger nanocoins) throws InsufficientMoneyException {
+    public Transaction createSend(Address address, BigInteger nanocoins) throws InsufficientMoneyException, CSExceptions.CannotEncode {
         SendRequest req = SendRequest.to(address, nanocoins);
         completeTx(req);
         return req.tx;
@@ -1965,7 +1990,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
      * @return the Transaction that was created
      * @throws InsufficientMoneyException if the request could not be completed due to not enough balance.
      */
-    public Transaction sendCoinsOffline(SendRequest request) throws InsufficientMoneyException {
+    public Transaction sendCoinsOffline(SendRequest request) throws InsufficientMoneyException, CSExceptions.CannotEncode {
         lock.lock();
         try {
             completeTx(request);
@@ -1998,7 +2023,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
      * @return An object containing the transaction that was created, and a future for the broadcast of it.
      * @throws InsufficientMoneyException if the request could not be completed due to not enough balance.
      */
-    public SendResult sendCoins(TransactionBroadcaster broadcaster, Address to, BigInteger value) throws InsufficientMoneyException {
+    public SendResult sendCoins(TransactionBroadcaster broadcaster, Address to, BigInteger value) throws InsufficientMoneyException, CSExceptions.CannotEncode {
         SendRequest request = SendRequest.to(to, value);
         return sendCoins(broadcaster, request);
     }
@@ -2019,7 +2044,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
      * @return An object containing the transaction that was created, and a future for the broadcast of it.
      * @throws InsufficientMoneyException if the request could not be completed due to not enough balance.
      */
-    public SendResult sendCoins(TransactionBroadcaster broadcaster, SendRequest request) throws InsufficientMoneyException {
+    public SendResult sendCoins(TransactionBroadcaster broadcaster, SendRequest request) throws InsufficientMoneyException, CSExceptions.CannotEncode {
         // Should not be locked here, as we're going to call into the broadcaster and that might want to hold its
         // own lock. sendCoinsOffline handles everything that needs to be locked.
         checkState(!lock.isHeldByCurrentThread());
@@ -2038,7 +2063,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
         return result;
     }
 
-    public void completeTx(SendRequest req) throws InsufficientMoneyException {
+    public void completeTx(SendRequest req) throws InsufficientMoneyException, CSExceptions.CannotEncode {
         completeTx(req, true);
     }
 
@@ -2051,7 +2076,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
      * @throws IllegalStateException if no transaction broadcaster has been configured.
      * @throws InsufficientMoneyException if the request could not be completed due to not enough balance.
      */
-    public SendResult sendCoins(SendRequest request) throws InsufficientMoneyException {
+    public SendResult sendCoins(SendRequest request) throws InsufficientMoneyException, CSExceptions.CannotEncode {
         TransactionBroadcaster broadcaster = vTransactionBroadcaster;
         checkState(broadcaster != null, "No transaction broadcaster is configured");
         return sendCoins(broadcaster, request);
@@ -2066,7 +2091,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
      * @return The {@link Transaction} that was created or null if there was insufficient balance to send the coins.
      * @throws InsufficientMoneyException if the request could not be completed due to not enough balance.
      */
-    public Transaction sendCoins(Peer peer, SendRequest request) throws InsufficientMoneyException {
+    public Transaction sendCoins(Peer peer, SendRequest request) throws InsufficientMoneyException, CSExceptions.CannotEncode {
         Transaction tx = sendCoinsOffline(request);
         peer.sendMessage(tx);
         return tx;
@@ -2082,7 +2107,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
      * @throws IllegalArgumentException if you try and complete the same SendRequest twice, or if the given send request
      *         cannot be completed without violating the protocol rules.
      */
-    public void completeTx(SendRequest req, boolean sign) throws InsufficientMoneyException {
+    public void completeTx(SendRequest req, boolean sign) throws InsufficientMoneyException, CSExceptions.CannotEncode {
         lock.lock();
         try {
             checkArgument(!req.completed, "Given SendRequest has already been completed.");
@@ -2142,8 +2167,17 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
 /* CSPK-mike START */                
 //                feeCalculation = new FeeCalculation(req, value, originalInputs, needAtLeastReferenceFee, candidates);
                 // Fee and inputs calculation
+/*                
+                CoinSparkMessagePart [] MessageParts=new CoinSparkMessagePart[1];
+                MessageParts[0]=new CoinSparkMessagePart();
+                MessageParts[0].mimeType="text/plain";
+                MessageParts[0].fileName=null;
+                MessageParts[0].content="Hello World!".getBytes();
+                String [] DeliveryServers=new String [] {"assets1.coinspark.org/delivery/","144.76.175.228/delivery/" };
+                req.setMessage(MessageParts, DeliveryServers);
+  */              
                 if(CS.createAssetTransfers(req, originalInputs, candidates))
-                {
+                {                                        
                     totalInput = BigInteger.ZERO;
                     for (TransactionInput input : req.tx.getInputs())
                     {
@@ -2167,6 +2201,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
                 {
                     throw new InsufficientMoneyException.CouldNotAdjustDownwards();
                 }
+                    
 /* CSPK-mike END */                
                 bestCoinSelection = feeCalculation.bestCoinSelection;
                 bestChangeOutput = feeCalculation.bestChangeOutput;
@@ -2184,6 +2219,13 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
             for (TransactionOutput output : bestCoinSelection.gathered)
                 req.tx.addInput(output);
 
+/* CSPK-mike START */                
+            if(!CS.prepareMessage(req))
+            {
+                throw new CSExceptions.CannotEncode("Cannot prepare message");
+            }
+/* CSPK-mike END */                
+            
             if (req.ensureMinRequiredFee && req.emptyWallet) {
                 final BigInteger baseFee = req.fee == null ? BigInteger.ZERO : req.fee;
                 final BigInteger feePerKb = req.feePerKb == null ? BigInteger.ZERO : req.feePerKb;
@@ -2245,6 +2287,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
                 sign(req);
             }
 
+           
 
             // Check size.
             int size = req.tx.bitcoinSerialize().length;
@@ -2275,8 +2318,10 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
         }
     }
     
-    public void sign(SendRequest sendRequest) {
+    public void sign(SendRequest sendRequest) throws CSExceptions.CannotEncode {
         // Now sign the inputs, thus proving that we are entitled to redeem the connected outputs.
+        
+        
         try {
             sendRequest.tx.signInputs(Transaction.SigHash.ALL, this, sendRequest.aesKey);
         } catch (ScriptException e) {
@@ -2284,6 +2329,31 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
             // happen, if it does it means the wallet has got into an inconsistent state.
             throw new RuntimeException(e);
         }
+/* CSPK-mike START */    
+// After inputs are signed we can send messahe ot delivery server
+        if(sendRequest.messageToCreate != null)
+        {
+            CS.log.info("Sending message for tx "+ sendRequest.tx.getHashAsString() + " to delivery server " + sendRequest.messageToCreate.getServerURL());
+            sendRequest.messageToCreate.setTxID(sendRequest.tx.getHashAsString());
+            if(!sendRequest.messageToCreate.create(this, sendRequest.messageParts, sendRequest.createNonce))
+            {
+                CS.log.info("Cannot create message for tx "+ sendRequest.tx.getHashAsString() + " on delivery server " + sendRequest.messageToCreate.getServerURL());
+                throw new CSExceptions.CannotEncode("Cannot send message to delivery server");
+            }
+/*            
+            if(!CS.messageDB.insertSentMessage(sendRequest.tx.getHashAsString(), 
+                                           sendRequest.tx.getOutputs().size(), 
+                                           sendRequest.message, 
+                                           sendRequest.messageParts,
+                                           sendRequest.messageToCreate.getMessageParams()))
+            {
+                CS.log.info("Cannot store message for tx "+ sendRequest.tx.getHashAsString());
+                throw new CSExceptions.CannotEncode("Cannot store message in the database");
+            }
+            */
+            CS.log.info("Message for tx "+ sendRequest.tx.getHashAsString() + " was successfully sent via delivery server " + sendRequest.messageToCreate.getServerURL());
+        }
+/* CSPK-mike END */    
     }
 
     /** Reduce the value of the first output of a transaction to pay the given feePerKb as appropriate for its size. */
@@ -4499,6 +4569,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
         
         private CSAssetDatabase assetDB;
         private CSBalanceDatabase balanceDB;
+        private CSMessageDatabase messageDB;
         
 	// !!! Experimental
 	private boolean canSendInvalidAssets;
@@ -4540,6 +4611,8 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
             
             balanceDB=new CSBalanceDatabase(FilePrefix, assetDB,log);
 
+//            messageDB=new CSMessageDatabase(FilePrefix, log, wallet);
+            
             log.info("Wallet started");
 
             log.info("Blockchain height: " + lastBlockSeenHeight);
@@ -4573,6 +4646,11 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
         public CSBalanceDatabase getBalanceDB()
         {
             return balanceDB;
+        }
+
+        public CSMessageDatabase getMessageDB()
+        {
+            return messageDB;
         }
 
         private CoinSparkIORange findAssetInputRange(SendRequest req,int AssetID,BigInteger AssetValue,List<TransactionInput> originalInputs,LinkedList<TransactionOutput> candidates)
@@ -4701,6 +4779,168 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
             return iRange;        
         }
 
+        private boolean prepareMessage(SendRequest req)
+        {
+            if(req.messageParts == null)
+            {
+                return true;
+            }
+            if(req.deliveryServers == null)
+            {
+                return false;
+            }
+            
+            
+            ECKey key=req.tx.getInput(0).getOutpoint().getConnectedKey(wallet);
+            if(key == null)
+            {
+                return false;
+            }
+            Address pubKeyHash=new Address(wallet.getNetworkParameters(), key.getPubKeyHash());
+            String sender=pubKeyHash.toString();
+            
+            key=null;
+            Script connectedScript = req.tx.getOutput(0).getScriptPubKey();
+            if (connectedScript.isSentToAddress()) {
+                byte[] addressBytes = connectedScript.getPubKeyHash();
+                key=wallet.findKeyFromPubHash(addressBytes);
+            } 
+            else 
+            {
+                if (connectedScript.isSentToRawPubKey()) 
+                {
+                    byte[] pubkeyBytes = connectedScript.getPubKey();
+                    key=wallet.findKeyFromPubKey(pubkeyBytes);
+                }
+            }
+            if(key == null)
+            {
+                return false;
+            }
+            pubKeyHash=new Address(wallet.getNetworkParameters(), key.getPubKeyHash());
+            String recipient=pubKeyHash.toString();
+            
+            byte[] seedBytes = new byte[16];
+            new Random().nextBytes(seedBytes);
+            
+            req.messageToCreate=new CSMessage();
+            CSMessage.CSMessageParams messageParams=req.messageToCreate.new CSMessageParams();
+            
+            messageParams.isSent=true;
+            messageParams.isPublic=false;
+            messageParams.sender=sender;
+            messageParams.keepseconds=req.KeepSeconds;
+            messageParams.recipients=new String [] {recipient};
+            messageParams.seed=Base64.encode(seedBytes);
+                    
+            req.messageToCreate.setAesKey(req.aesKey);
+            req.messageToCreate.setMessageParams(messageParams);
+            
+            req.createNonce =req.messageToCreate.new CSNonce();
+            req.createNonce.error=CSUtils.CSServerError.SERVER_NOT_FOUND;
+            
+            
+            byte [] txnMetaData = null;
+            int metadataOutput=0;
+            int count=0;
+            for (TransactionOutput output : req.tx.getOutputs())
+            {
+                byte[] scriptBytes = output.getScriptBytes();
+
+                if(!CoinSparkBase.scriptIsRegular(scriptBytes))
+                {
+                    txnMetaData=CoinSparkBase.scriptToMetadata(scriptBytes);
+                    metadataOutput=count;
+                }
+                count++;
+            }
+            
+            int appendMetadataMaxLen=OP_RETURN_MAXIMUM_LENGTH;
+            
+            if(txnMetaData != null)
+            {
+                appendMetadataMaxLen=CoinSparkBase.metadataMaxAppendLen(txnMetaData, OP_RETURN_MAXIMUM_LENGTH);
+            }
+            
+            byte [] metadata=null;
+            
+            CSUtils.shuffleArray(req.deliveryServers);
+            
+            for(String serverURL : req.deliveryServers)
+            {
+                if(req.createNonce.error != CSUtils.CSServerError.NOERROR)
+                {
+                    req.messageToCreate.setServerURL(serverURL);
+                    req.createNonce=req.messageToCreate.getCreateNonce(req.messageParts);
+                    if(req.createNonce.error != CSUtils.CSServerError.NOERROR)
+                    {
+                        CS.log.info("Server " + serverURL + ": " + req.createNonce.error.getCode() + " - " + req.createNonce.errorMessage);
+                    }
+                    else
+                    {
+                        req.message=new CoinSparkMessage();
+                        if(!CSUtils.setDeliveryServer(req.messageToCreate.getServerURL(), req.message))
+                        {
+                            CS.log.info("Cannot parse server URL: " + req.messageToCreate.getServerURL());
+                        }
+                        req.message.setIsPublic(false);
+                        req.message.addOutputs(new CoinSparkIORange(0, 1)); 
+
+
+                        int hashLen=req.message.calcHashLen(req.tx.getOutputs().size(), appendMetadataMaxLen); 
+                        req.message.setHashLen(hashLen);
+                        byte[] hash = CoinSparkMessage.calcMessageHash(seedBytes, req.messageParts);
+                        req.message.setHash(hash);
+
+                        metadata = req.message.encode(req.tx.getOutputs().size(),appendMetadataMaxLen);
+                        
+                        if(metadata==null)
+                        {
+                            req.message=null;
+                            req.createNonce.error=CSUtils.CSServerError.METADATA_ENCODE_ERROR;
+                            CS.log.info("Cannot encode metadata for server " + req.messageToCreate.getServerURL());
+                        }
+                    }            
+                }
+            }
+            
+            if(req.createNonce.error != CSUtils.CSServerError.NOERROR)
+            {
+                CS.log.info("All delivery servers refused to create the message");
+                return false;
+            }            
+            
+
+            if (metadata != null)
+            {
+                if(txnMetaData != null)
+                {
+                    metadata=CoinSparkBase.metadataAppend(txnMetaData, OP_RETURN_MAXIMUM_LENGTH, metadata);
+                    if (metadata != null)
+                    {
+                        changeMetadataInTx(metadata, req.tx, metadataOutput);
+                    }                    
+                    else
+                    {
+                        log.warning("Cannot encode message metadata");
+                        return false;                       
+                    }
+                }
+                else
+                {
+                    addMetadataToTx(metadata, req.tx);
+                }
+            }
+            else
+            {
+                log.warning("Cannot encode message metadata");
+                return false;
+            }
+
+            log.info("Message metadata was successfully created.");
+            
+            return true;
+        }
 
         private boolean createAssetTransfers(SendRequest req,List<TransactionInput> originalInputs,LinkedList<TransactionOutput> candidates)
         {
@@ -4916,6 +5156,26 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
             tx.addOutput(new TransactionOutput(getParams(), tx, BigInteger.ZERO, CoinSparkBase.metadataToScript(metadata)));
         }
 
+        private void changeMetadataInTx(byte [] metadata, Transaction tx,int output_id) 
+        {
+            List<TransactionOutput>originalOutputs=new ArrayList<TransactionOutput>(tx.getOutputs());
+//            List<TransactionOutput>originalOutputs=tx.getOutputs();
+            int count=0;
+            tx.clearOutputs();
+            for (TransactionOutput output : originalOutputs)
+            {                
+                if(count==output_id)
+                {
+                    tx.addOutput(new TransactionOutput(getParams(), tx, BigInteger.ZERO, CoinSparkBase.metadataToScript(metadata)));
+                }
+                else
+                {
+                    tx.addOutput(output);
+                }
+                count++;
+            }
+        }
+        
         /**
          * Returns asset quantities send by current request.
          * @param req SendRequest object
@@ -5581,6 +5841,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
             }
             
             assetDB.validateAssets(pg);        
+//            messageDB.retrieveMessages();
         }
 
         /**
