@@ -859,7 +859,7 @@ public class CSAsset {
                             case UNCLEAR:
                             case FILE:
                                 assetContractState=CSAssetContractState.POSSIBLE_EMBEDDED_URL;
-                                break;
+                                return false;
                             case URL:
                                 assetContractState=CSAssetContractState.EMBEDDED_URL;
                                 return false;
