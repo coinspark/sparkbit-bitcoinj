@@ -39,9 +39,13 @@ import java.io.File;
 import java.io.FileNotFoundException;
 import java.io.IOException;
 import java.io.RandomAccessFile;
+import java.io.UnsupportedEncodingException;
 import java.net.MalformedURLException;
 import java.net.URISyntaxException;
 import java.net.URL;
+import java.nio.file.Files;
+import java.nio.file.Path;
+import static java.nio.file.StandardCopyOption.REPLACE_EXISTING;
 import java.util.Arrays;
 import java.util.Date;
 import java.util.Random;
@@ -136,8 +140,23 @@ public class CSAsset {
     // The contract underlying the asset, as retrieved from the URL in that JSON. [null?]
     private String contractPath;
     
+    // The JSON of underlying the asset. [null?]
+    private String jsonPath;
+    
+    // The last valid contract underlying the asset, as retrieved from the URL in that JSON. [null?]
+    private String validContractPath;
+    
+    // The last valid JSON of underlying the asset. [null?]
+    private String validJsonPath;
+
+    private String validContractPathToSet;
+    private String validJsonPathToSet;
+    
     //The MIME type of that contract, as sent in the HTTP response headers when retrieving it. [null?]
     private CSUtils.CSMimeType contractMimeType;
+    
+    //The MIME type of that last valid contract, as sent in the HTTP response headers when retrieving it. [null?]
+    private CSUtils.CSMimeType validContractMimeType;
     
     // Downloaded Asset icon
     private String iconPath;
@@ -200,11 +219,25 @@ public class CSAsset {
         
         if(assetID>0)
         {
-            String prefix=FilePrefix+String.format("asset%06d_", assetID);
+            String prefix=FilePrefix+String.format("asset%06d", assetID);
+            String validPrefix=FilePrefix+String.format("asset%06d_valid", assetID);
+            
+            jsonPath=prefix+".json";
+            if(!(new File(jsonPath)).exists())
+            {
+                jsonPath=null;
+            }
 
+            validJsonPath=validPrefix+".json";
+            if(!(new File(validJsonPath)).exists())
+            {
+                validJsonPath=null;
+            }
+
+            
             if(contractMimeType != null)
             {
-                contractPath=prefix+"contract"+contractMimeType.getExtension();
+                contractPath=prefix+"_contract"+contractMimeType.getExtension();
                 if(!(new File(contractPath)).exists())
                 {
                     contractMimeType=null;
@@ -212,9 +245,19 @@ public class CSAsset {
                 }
             }
 
+            if(validContractMimeType != null)
+            {
+                validContractPath=validPrefix+"_contract"+validContractMimeType.getExtension();
+                if(!(new File(validContractPath)).exists())
+                {
+                    validContractMimeType=null;
+                    validContractPath=null;
+                }
+            }
+
             if(iconMimeType != null)
             {
-                iconPath=prefix+"icon"+iconMimeType.getExtension();
+                iconPath=prefix+"_icon"+iconMimeType.getExtension();
                 if(!(new File(iconPath)).exists())
                 {
                     iconMimeType=null;
@@ -224,7 +267,7 @@ public class CSAsset {
 
             if(imageMimeType != null)
             {
-                imagePath=prefix+"image"+imageMimeType.getExtension();
+                imagePath=prefix+"_image"+imageMimeType.getExtension();
                 if(!(new File(imagePath)).exists())
                 {
                     imagePath=null;
@@ -299,8 +342,12 @@ public class CSAsset {
     public CoinSparkAssetRef getAssetReference(){return assetRef;}
     public Date    getValidChecked(){return validChecked;}
     public int     getValidFailures(){return validFailures;}
+    public String  getJsonPath(){return jsonPath;}
     public String  getContractPath(){return contractPath;}
     public CSUtils.CSMimeType getContractMimeType(){return contractMimeType;}
+    public String  getValidJsonPath(){return validJsonPath;}
+    public String  getValidContractPath(){return validContractPath;}
+    public CSUtils.CSMimeType getValidContractMimeType(){return validContractMimeType;}
     public String  getIconPath(){return iconPath;}    
     public String  getImagePath(){return imagePath;}    
     public String [] getCoinsparkTrackerUrls(){return coinsparkTrackerUrls;}
@@ -592,7 +639,7 @@ public class CSAsset {
     
     
     
-    private String fetchDetailsJSON()
+    private String fetchDetailsJSON(String FilePrefix)
     {
         if(genesis == null)
         {
@@ -679,6 +726,29 @@ public class CSAsset {
             if(posEnd>0)
             {
                 jsonString=new String(Arrays.copyOfRange(tail, 0, posEnd));
+                String prefix=FilePrefix+String.format("asset%06d", assetID);
+                String validPrefix=FilePrefix+String.format("asset%06d_valid", assetID);
+
+                jsonPath=prefix+".json";
+                validJsonPathToSet=validPrefix+".json";
+                
+                RandomAccessFile aFile=null;
+                try {
+                    aFile = new RandomAccessFile(jsonPath, "rw");
+                    aFile.write(jsonString.getBytes("UTF-8"));
+                    aFile.close();
+                    
+                } catch (FileNotFoundException ex) {
+                    log.info("Asset DB: Cannot save json " + ex.getClass().getName() + " " + ex.getMessage());    
+                    jsonString=null;
+                } catch (UnsupportedEncodingException ex) {
+                    log.info("Asset DB: Cannot save json " + ex.getClass().getName() + " " + ex.getMessage());    
+                    jsonString=null;
+                } catch (IOException ex) {
+                    log.info("Asset DB: Cannot save json " + ex.getClass().getName() + " " + ex.getMessage());    
+                    jsonString=null;
+                }        
+                
             }
         }
         else
@@ -838,6 +908,18 @@ public class CSAsset {
             assetValidationState = CSAssetState.HASH_MISMATCH;
             return false;
         }
+
+        
+                        
+        try {
+            Files.copy(new File(jsonPath).toPath(), new File(validJsonPathToSet).toPath(), REPLACE_EXISTING);
+            validJsonPath=validJsonPathToSet;
+            Files.copy(new File(contractPath).toPath(), new File(validContractPathToSet).toPath(), REPLACE_EXISTING);
+            validContractPath=validContractPathToSet;
+            validContractMimeType=contractMimeType;
+        } catch (IOException ex) {
+            Logger.getLogger(CSAsset.class.getName()).log(Level.SEVERE, null, ex);
+        }
         
         return true;
     }
@@ -919,12 +1001,14 @@ public class CSAsset {
             return false;
         }
         
-        String prefix=FilePrefix+String.format("asset%06d_", assetID);
+        String prefix=FilePrefix+String.format("asset%06d", assetID);
+        String validPrefix=FilePrefix+String.format("asset%06d_valid", assetID);
         
-        contractMimeType=downloadFile(contractUrl, prefix+"contract");
+        contractMimeType=downloadFile(contractUrl, prefix+"_contract");
         if(contractMimeType != null)
         {
-            contractPath=prefix+"contract"+contractMimeType.getExtension();
+            contractPath=prefix+"_contract"+contractMimeType.getExtension();
+            validContractPathToSet=validPrefix+"_contract"+contractMimeType.getExtension();
         }
         else
         {
@@ -934,19 +1018,19 @@ public class CSAsset {
         
         if(iconUrl!= null && !iconUrl.isEmpty())
         {
-            iconMimeType=downloadFile(iconUrl, prefix+"icon");
+            iconMimeType=downloadFile(iconUrl, prefix+"_icon");
             if(iconMimeType != null)
             {
-                iconPath=prefix+"icon"+iconMimeType.getExtension();
+                iconPath=prefix+"_icon"+iconMimeType.getExtension();
             }
         }
         
         if(imageUrl!= null && !imageUrl.isEmpty())
         {
-            imageMimeType=downloadFile(imageUrl, prefix+"image");
+            imageMimeType=downloadFile(imageUrl, prefix+"_image");
             if(imageMimeType != null)
             {
-                imagePath=prefix+"image"+imageMimeType.getExtension();
+                imagePath=prefix+"_image"+imageMimeType.getExtension();
             }
         }
         
@@ -1137,9 +1221,25 @@ public class CSAsset {
                 if(jvalue != null){
                     contractPath=jvalue.getAsString();
                 }
+                jvalue=jresult.get("valid_contract_path");         
+                if(jvalue != null){
+                    validContractPath=jvalue.getAsString();
+                }
+                jvalue=jresult.get("json_path");         
+                if(jvalue != null){
+                    jsonPath=jvalue.getAsString();
+                }
+                jvalue=jresult.get("valid_json_path");         
+                if(jvalue != null){
+                    validJsonPathToSet=jvalue.getAsString();
+                }
                 jvalue=jresult.get("contract_mime");         
                 if(jvalue != null){
                     contractMimeType=CSUtils.CSMimeType.fromExtension(jvalue.getAsString());
+                }
+                jvalue=jresult.get("valid_contract_mime");         
+                if(jvalue != null){
+                    validContractMimeType=CSUtils.CSMimeType.fromExtension(jvalue.getAsString());
                 }
                 jvalue=jresult.get("image_path");            
                 if(jvalue != null){
@@ -1194,7 +1294,7 @@ public class CSAsset {
             return true;
         }
         
-        String jsonString=fetchDetailsJSON();
+        String jsonString=fetchDetailsJSON(FilePrefix);
         
         if(!parseJSONString(jsonString))
         {
@@ -1496,6 +1596,9 @@ public class CSAsset {
         jobject.addProperty("valid_failures",validFailures);
         if(contractMimeType != null){
             jobject.addProperty("contract_mime",            contractMimeType.getExtension());
+        }
+        if(validContractMimeType != null){
+            jobject.addProperty("valid_contract_mime",            contractMimeType.getExtension());
         }
         if(imageMimeType != null){
             jobject.addProperty("image_mime",               imageMimeType.getExtension());

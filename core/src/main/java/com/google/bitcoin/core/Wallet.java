@@ -6105,7 +6105,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
                                                 }
 //                                                s2+=obj.toString() + "\n";
                                             }
-                    //                        s+=obj.toString() + "\n";
+                                            s+=obj.toString() + "\n";
                                             next=obj.offsetNext;
                                             if(obj.type == CSPDFParser.CSPDFObjectType.STRANGE)
                                             {
