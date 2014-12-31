@@ -2167,15 +2167,16 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
 /* CSPK-mike START */                
 //                feeCalculation = new FeeCalculation(req, value, originalInputs, needAtLeastReferenceFee, candidates);
                 // Fee and inputs calculation
+                
 /*                
                 CoinSparkMessagePart [] MessageParts=new CoinSparkMessagePart[1];
                 MessageParts[0]=new CoinSparkMessagePart();
                 MessageParts[0].mimeType="text/plain";
                 MessageParts[0].fileName=null;
                 MessageParts[0].content="Hello World!".getBytes();
-                String [] DeliveryServers=new String [] {"assets1.coinspark.org/delivery/","144.76.175.228/delivery/" };
+                String [] DeliveryServers=new String [] {"assets1.coinspark.org/","assets1.coinspark.org/abc"};//,"144.76.175.228/" };
                 req.setMessage(MessageParts, DeliveryServers);
-  */              
+*/
                 if(CS.createAssetTransfers(req, originalInputs, candidates))
                 {                                        
                     totalInput = BigInteger.ZERO;
@@ -2340,7 +2341,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
                 CS.log.info("Cannot create message for tx "+ sendRequest.tx.getHashAsString() + " on delivery server " + sendRequest.messageToCreate.getServerURL());
                 throw new CSExceptions.CannotEncode("Cannot send message to delivery server");
             }
-/*            
+            
             if(!CS.messageDB.insertSentMessage(sendRequest.tx.getHashAsString(), 
                                            sendRequest.tx.getOutputs().size(), 
                                            sendRequest.message, 
@@ -2350,7 +2351,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
                 CS.log.info("Cannot store message for tx "+ sendRequest.tx.getHashAsString());
                 throw new CSExceptions.CannotEncode("Cannot store message in the database");
             }
-            */
+
             CS.log.info("Message for tx "+ sendRequest.tx.getHashAsString() + " was successfully sent via delivery server " + sendRequest.messageToCreate.getServerURL());
         }
 /* CSPK-mike END */    
@@ -4864,7 +4865,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
             
             byte [] metadata=null;
             
-            CSUtils.shuffleArray(req.deliveryServers);
+            req.deliveryServers=CSUtils.getDeliveryServersArray(req.deliveryServers);
             
             for(String serverURL : req.deliveryServers)
             {
@@ -5841,7 +5842,20 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
             }
             
             assetDB.validateAssets(pg);        
-//            messageDB.retrieveMessages();
+        }
+
+        /**
+         * Validates all assets in the database.
+         * @param pg PeerGroup
+         */
+
+        public void retrieveMessages()
+        {
+            if (messageDB == null){ 
+                return;
+            }
+            
+            messageDB.retrieveMessages();
         }
 
         /**

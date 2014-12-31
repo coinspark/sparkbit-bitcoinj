@@ -30,11 +30,13 @@ import java.io.OutputStreamWriter;
 import java.io.RandomAccessFile;
 import java.math.BigInteger;
 import java.net.HttpURLConnection;
+import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.MalformedURLException;
 import java.net.SocketAddress;
 import java.net.URL;
 import java.net.URLConnection;
+import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
 import java.text.DateFormat;
@@ -396,6 +398,49 @@ public class CSUtils {
             arr[index] = arr[i];
             arr[i] = a;
         }
+    }
+    
+    public static String [] getDeliveryServersArray(String [] source)
+    {
+        shuffleArray(source);
+        String [] result;
+        result=new String[2*source.length];
+        
+        int count=0;
+        for(String urlString : source)
+        {
+            URL url;
+            try {
+                url = new URL(addHttpIfMissing(urlString));
+                InetAddress address = InetAddress.getByName(url.getHost());
+                if(address != null)
+                {
+                    String ip=address.getHostAddress();
+                    result[count]="http://";
+                    if("https".equals(url.getProtocol()))
+                    {
+                        result[count]="https://";
+                    }
+                    result[count]+=ip;
+                    if(url.getPath().length()>0)
+                    {
+                        result[count]+=url.getPath();
+                    }
+                    count++;
+                }
+            } catch (MalformedURLException ex) {
+            } catch (UnknownHostException ex) {
+            }
+            result[count]=urlString;
+            count++;            
+        }
+        
+        if(count==0)
+        {
+            return result; 
+        }
+        
+        return Arrays.copyOf(result, count);
     }
     
     public static String addHttpIfMissing(String URL)
