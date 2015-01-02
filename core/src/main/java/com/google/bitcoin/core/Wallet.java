@@ -5727,10 +5727,27 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
             for(TransactionOutput output: candidates)
             {
                 CSTransactionOutput txOut=new CSTransactionOutput(output.getParentTransaction(), output.getIndex());
-                map.put(txOut, getTxOutBalances(txOut));
+                map.put(txOut, getTxOutBalances(txOut,output.getValue()));
             }
             
             return map;
+        }
+        
+        private Map<Integer,CSBalance> getTxOutBalances(CSTransactionOutput TxOut,BigInteger BTCValue)
+        {
+            Map <Integer,CSBalance> map= new HashMap<Integer,CSBalance>();
+
+            CSBalanceDatabase.CSBalanceIterator iter=balanceDB.getTxOutBalances(TxOut);
+
+            map.put(0, new CSBalance(TxOut, 0, BTCValue, new Date(), 0, CSBalance.CSBalanceState.VALID));
+            CSBalance balance=iter.next();
+            while(balance != null)
+            {
+                map.put(balance.getAssetID(), balance);
+                balance=iter.next();
+            }
+
+            return map;        
         }
         
         /**
@@ -6038,7 +6055,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
         
         
         s+="\n";
-/*        
+        
         s+="Unspent TxOuts\n\n";
         Map<CSTransactionOutput,Map<Integer,CSBalance>>  mapTxOuts=CS.getAllAssetTxOuts();
         
@@ -6053,9 +6070,9 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
         }        
         
         s+="\n";
-*/
-        
 
+        
+/*
         String pdfPath;
         String folderPath="/home/mike/tmp/pdfs/";
         String logFile="/home/mike/tmp/pdfs/pdfparser.log";
@@ -6184,7 +6201,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
         
         }
 
-        
+  */      
 /*        
         s+="Asset totals (spendable)\n\n";
         
