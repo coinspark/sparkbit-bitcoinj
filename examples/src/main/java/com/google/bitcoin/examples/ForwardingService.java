@@ -142,6 +142,9 @@ public class ForwardingService {
         } catch (InsufficientMoneyException e) {
             // This should never happen - we're only trying to forward what we received!
             throw new RuntimeException(e);
+        } catch (Exception e) {
+        	// Catch coinspark CannotEncode exception here
+        	throw new RuntimeException(e);
         }
     }
 }
