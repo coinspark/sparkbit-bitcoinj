@@ -99,6 +99,7 @@ public class CSAsset {
     
     private CSAssetState assetState;                                
     private CSAssetState assetValidationState;
+    private CSAssetState assetStateBeforeRefresh;                                
       
     // Internal Asset ID in the database
     private int assetID;            
@@ -332,6 +333,7 @@ public class CSAsset {
     
     
     public CSAsset.CSAssetState getAssetState(){return assetState;}                
+    public CSAsset.CSAssetState getAssetStateBeforeRefresh(){return (assetState==CSAssetState.REFRESH) ? assetStateBeforeRefresh : assetState;}                
     public CSAsset.CSAssetSource getAssetSource(){return assetSource;}
     public CSAsset.CSAssetContractState getAssetContractState(){return assetContractState;}
     public int     getAssetID(){return assetID;}                
@@ -1325,6 +1327,10 @@ public class CSAsset {
     
     public void setRefreshState()
     {
+        if(assetState!=CSAssetState.REFRESH)
+        {
+            assetStateBeforeRefresh=assetState;
+        }
         assetState=CSAssetState.REFRESH;
     }
 
