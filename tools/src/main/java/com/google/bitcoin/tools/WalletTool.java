@@ -471,7 +471,10 @@ public class WalletTool {
             throw new RuntimeException(e);
         } catch (InsufficientMoneyException e) {
             System.err.println("Insufficient funds: have " + Utils.bitcoinValueToFriendlyString(wallet.getBalance()));
-        }
+        } catch (Exception e) {
+        	// Coinspark exception CannotEncode
+        	throw new RuntimeException(e);
+		}
     }
 
     private static void sendPaymentRequest(String location, boolean verifyPki) {
@@ -584,6 +587,9 @@ public class WalletTool {
             System.err.println("Insufficient funds: have " + Utils.bitcoinValueToFriendlyString(wallet.getBalance()));
         } catch (BlockStoreException e) {
             throw new RuntimeException(e);
+        } catch (Exception e) {
+        	// Catch coinspark CannotEncode exception
+        	throw new RuntimeException(e);
         }
     }
 
