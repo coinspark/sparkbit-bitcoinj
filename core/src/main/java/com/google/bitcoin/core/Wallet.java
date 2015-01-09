@@ -77,6 +77,7 @@ import org.coinspark.protocol.CoinSparkExceptions;
 import org.coinspark.protocol.CoinSparkIORange;
 import org.coinspark.protocol.CoinSparkMessage;
 import org.coinspark.protocol.CoinSparkMessagePart;
+import org.coinspark.protocol.CoinSparkPaymentRef;
 import org.coinspark.protocol.CoinSparkTransfer;
 import org.coinspark.protocol.CoinSparkTransferList;
 import org.coinspark.wallet.CSAsset;
@@ -1821,6 +1822,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
             
         }
 
+        private CoinSparkPaymentRef paymentRef=null;
         private CoinSparkMessagePart[] messageParts=null;
         private String[] deliveryServers=null;
         private int KeepSeconds=86400;
@@ -1845,6 +1847,10 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
             deliveryServers=DeliveryServers;
         }
         
+        public void setPaymentRef(CoinSparkPaymentRef PaymentRef)
+        {
+            paymentRef=PaymentRef;
+        }
         
         
         
@@ -2176,7 +2182,10 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
                 MessageParts[0].content="Hello World!".getBytes();
                 String [] DeliveryServers=new String [] {"assets1.coinspark.org/","assets1.coinspark.org/abc"};//,"144.76.175.228/" };
                 req.setMessage(MessageParts, DeliveryServers);
+                CoinSparkPaymentRef paymentRef=new CoinSparkPaymentRef(125);
+                req.setPaymentRef(paymentRef);
 */
+                
                 if(CS.createAssetTransfers(req, originalInputs, candidates))
                 {                                        
                     totalInput = BigInteger.ZERO;
@@ -2222,6 +2231,10 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
 
 /* CSPK-mike START */                
             if(!CS.prepareMessage(req))
+            {
+                throw new CSExceptions.CannotEncode("Cannot prepare message");
+            }
+            if(!CS.preparePaymentRef(req))
             {
                 throw new CSExceptions.CannotEncode("Cannot prepare message");
             }
@@ -4939,6 +4952,70 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
             }
 
             log.info("Message metadata was successfully created.");
+            
+            return true;
+        }
+
+        private boolean preparePaymentRef(SendRequest req)
+        {
+            if(req.paymentRef == null)
+            {
+                return true;
+            }
+            
+            byte [] txnMetaData = null;
+            int metadataOutput=0;
+            int count=0;
+            for (TransactionOutput output : req.tx.getOutputs())
+            {
+                byte[] scriptBytes = output.getScriptBytes();
+
+                if(!CoinSparkBase.scriptIsRegular(scriptBytes))
+                {
+                    txnMetaData=CoinSparkBase.scriptToMetadata(scriptBytes);
+                    metadataOutput=count;
+                }
+                count++;
+            }
+            
+            int appendMetadataMaxLen=OP_RETURN_MAXIMUM_LENGTH;
+            
+            if(txnMetaData != null)
+            {
+                appendMetadataMaxLen=CoinSparkBase.metadataMaxAppendLen(txnMetaData, OP_RETURN_MAXIMUM_LENGTH);
+            }
+            
+            byte [] metadata=null;
+
+            metadata=req.paymentRef.encode(appendMetadataMaxLen);
+
+            if (metadata != null)
+            {
+                if(txnMetaData != null)
+                {
+                    metadata=CoinSparkBase.metadataAppend(txnMetaData, OP_RETURN_MAXIMUM_LENGTH, metadata);
+                    if (metadata != null)
+                    {
+                        changeMetadataInTx(metadata, req.tx, metadataOutput);
+                    }                    
+                    else
+                    {
+                        log.warning("Cannot encode paymentRef metadata");
+                        return false;                       
+                    }
+                }
+                else
+                {
+                    addMetadataToTx(metadata, req.tx);
+                }
+            }
+            else
+            {
+                log.warning("Cannot encode paymentRef metadata");
+                return false;
+            }
+
+            log.info("PaymentRef metadata was successfully created.");
             
             return true;
         }
