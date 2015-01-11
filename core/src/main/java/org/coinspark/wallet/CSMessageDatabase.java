@@ -30,6 +30,7 @@ import org.coinspark.core.CSLogger;
 import org.coinspark.core.CSUtils;
 import org.coinspark.protocol.CoinSparkMessage;
 import org.coinspark.protocol.CoinSparkMessagePart;
+import org.coinspark.protocol.CoinSparkPaymentRef;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -192,9 +193,9 @@ public class CSMessageDatabase {
         return true;
     }
     
-    public boolean insertReceivedMessage(String TxID,int countOutputs,CoinSparkMessage Message,String [] Addresses)
+    public boolean insertReceivedMessage(String TxID,int countOutputs,CoinSparkPaymentRef PaymentRef,CoinSparkMessage Message,String [] Addresses)
     {
-        if(Message == null)
+        if((Message == null) && (PaymentRef == null))
         {
             return false;
         }
@@ -211,7 +212,7 @@ public class CSMessageDatabase {
         lock.lock();
         try {                 
             
-            result=message.set(TxID, countOutputs, Message,  Addresses, fileSize, dirName);
+            result=message.set(TxID, countOutputs, PaymentRef, Message,  Addresses, fileSize, dirName);
             
             if(result)
             {
@@ -243,9 +244,9 @@ public class CSMessageDatabase {
         return result;
     }
 
-    public boolean insertSentMessage(String TxID,int countOutputs,CoinSparkMessage Message,CoinSparkMessagePart [] MessageParts,CSMessage.CSMessageParams MessageParams)
+    public boolean insertSentMessage(String TxID,int countOutputs,CoinSparkPaymentRef PaymentRef,CoinSparkMessage Message,CoinSparkMessagePart [] MessageParts,CSMessage.CSMessageParams MessageParams)
     {
-        if(Message == null)
+        if((Message == null) && (PaymentRef == null))
         {
             return false;
         }
@@ -262,7 +263,7 @@ public class CSMessageDatabase {
         lock.lock();
         try {                 
             
-            result=message.set(TxID, countOutputs, Message, MessageParts,MessageParams, fileSize, dirName);
+            result=message.set(TxID, countOutputs, PaymentRef, Message, MessageParts,MessageParams, fileSize, dirName);
             
             if(result)
             {
@@ -331,7 +332,7 @@ public class CSMessageDatabase {
     }
     
     
-    CSMessage getMessage(String TxID)
+    public CSMessage getMessage(String TxID)
     {
         if(TxID == null)
         {

@@ -281,6 +281,16 @@ public class CSUtils {
             k/=256;
         }
     }
+    
+    public static  void littleEndianByteArray(long n,byte[] arr,int off)
+    {
+        long k=n;
+        for(int i=0;i<8;i++)
+        {
+            arr[off+i]=(byte)(k%256);
+            k/=256;
+        }
+    }
 
     public static  void littleEndianByteArray(BigInteger n,byte[] arr,int off)
     {
@@ -301,6 +311,16 @@ public class CSUtils {
         for(int i=0;i<4;i++)
         {
             n=n*256+(arr[off+3-i]&0xFF);
+        }
+        return n;
+    }
+
+    public static long littleEndianToLong(byte[] arr,int off)
+    {
+        long n=0;
+        for(int i=0;i<8;i++)
+        {
+            n=n*256+(arr[off+7-i]&0xFF);
         }
         return n;
     }

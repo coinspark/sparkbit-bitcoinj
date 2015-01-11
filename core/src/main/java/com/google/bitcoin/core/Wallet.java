@@ -2214,7 +2214,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
 //                feeCalculation = new FeeCalculation(req, value, originalInputs, needAtLeastReferenceFee, candidates);
                 // Fee and inputs calculation
                 
-/*                
+/*               
                 CoinSparkMessagePart [] MessageParts=new CoinSparkMessagePart[1];
                 MessageParts[0]=new CoinSparkMessagePart();
                 MessageParts[0].mimeType="text/plain";
@@ -2222,6 +2222,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
                 MessageParts[0].content="Hello World!".getBytes();
                 String [] DeliveryServers=new String [] {"assets1.coinspark.org/","assets1.coinspark.org/abc"};//,"144.76.175.228/" };
                 req.setMessage(MessageParts, DeliveryServers);
+
                 CoinSparkPaymentRef paymentRef=new CoinSparkPaymentRef(125);
                 req.setPaymentRef(paymentRef);
 */
@@ -2270,11 +2271,11 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
                 req.tx.addInput(output);
 
 /* CSPK-mike START */                
-            if(!CS.prepareMessage(req))
-            {
-                throw new CSExceptions.CannotEncode("Cannot prepare message");
-            }
             if(!CS.preparePaymentRef(req))
+            {
+                throw new CSExceptions.CannotEncode("Cannot prepare payment reference");
+            }
+            if(!CS.prepareMessage(req))
             {
                 throw new CSExceptions.CannotEncode("Cannot prepare message");
             }
@@ -2387,16 +2388,21 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
 // After inputs are signed we can send messahe ot delivery server
         if(sendRequest.messageToCreate != null)
         {
-            CS.log.info("Sending message for tx "+ sendRequest.tx.getHashAsString() + " to delivery server " + sendRequest.messageToCreate.getServerURL());
-            sendRequest.messageToCreate.setTxID(sendRequest.tx.getHashAsString());
-            if(!sendRequest.messageToCreate.create(this, sendRequest.messageParts, sendRequest.createNonce))
+            if(sendRequest.messageParts != null)
             {
-                CS.log.info("Cannot create message for tx "+ sendRequest.tx.getHashAsString() + " on delivery server " + sendRequest.messageToCreate.getServerURL());
-                throw new CSExceptions.CannotEncode("Cannot send message to delivery server");
+                CS.log.info("Sending message for tx "+ sendRequest.tx.getHashAsString() + " to delivery server " + sendRequest.messageToCreate.getServerURL());
+                sendRequest.messageToCreate.setTxID(sendRequest.tx.getHashAsString());
+
+                if(!sendRequest.messageToCreate.create(this, sendRequest.messageParts, sendRequest.createNonce))
+                {
+                    CS.log.info("Cannot create message for tx "+ sendRequest.tx.getHashAsString() + " on delivery server " + sendRequest.messageToCreate.getServerURL());
+                    throw new CSExceptions.CannotEncode("Cannot send message to delivery server");
+                }
             }
-            
+
             if(!CS.messageDB.insertSentMessage(sendRequest.tx.getHashAsString(), 
                                            sendRequest.tx.getOutputs().size(), 
+                                           sendRequest.messageToCreate.getPaymentRef(),
                                            sendRequest.message, 
                                            sendRequest.messageParts,
                                            sendRequest.messageToCreate.getMessageParams()))
@@ -2405,7 +2411,11 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
                 throw new CSExceptions.CannotEncode("Cannot store message in the database");
             }
 
-            CS.log.info("Message for tx "+ sendRequest.tx.getHashAsString() + " was successfully sent via delivery server " + sendRequest.messageToCreate.getServerURL());
+
+            if(sendRequest.messageParts != null)
+            {
+                CS.log.info("Message for tx "+ sendRequest.tx.getHashAsString() + " was successfully sent via delivery server " + sendRequest.messageToCreate.getServerURL());
+            }
         }
 /* CSPK-mike END */    
     }
@@ -4665,7 +4675,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
             
             balanceDB=new CSBalanceDatabase(FilePrefix, assetDB,log);
 
-//            messageDB=new CSMessageDatabase(FilePrefix, log, wallet);
+            messageDB=new CSMessageDatabase(FilePrefix, log, wallet);
             
             log.info("Wallet started");
 
@@ -4874,10 +4884,16 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
             pubKeyHash=new Address(wallet.getNetworkParameters(), key.getPubKeyHash());
             String recipient=pubKeyHash.toString();
             
-            byte[] seedBytes = new byte[16];
-            new Random().nextBytes(seedBytes);
+            byte[] saltBytes = new byte[16];
+            new Random().nextBytes(saltBytes);
             
             req.messageToCreate=new CSMessage();
+            
+            if(req.paymentRef != null)
+            {
+                req.messageToCreate.setPaymentRef(req.paymentRef);
+            }
+            
             CSMessage.CSMessageParams messageParams=req.messageToCreate.new CSMessageParams();
             
             messageParams.isSent=true;
@@ -4885,7 +4901,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
             messageParams.sender=sender;
             messageParams.keepseconds=req.KeepSeconds;
             messageParams.recipients=new String [] {recipient};
-            messageParams.seed=Base64.encode(seedBytes);
+            messageParams.salt=Base64.encode(saltBytes);
                     
             req.messageToCreate.setAesKey(req.aesKey);
             req.messageToCreate.setMessageParams(messageParams);
@@ -4943,7 +4959,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
 
                         int hashLen=req.message.calcHashLen(req.tx.getOutputs().size(), appendMetadataMaxLen); 
                         req.message.setHashLen(hashLen);
-                        byte[] hash = CoinSparkMessage.calcMessageHash(seedBytes, req.messageParts);
+                        byte[] hash = CoinSparkMessage.calcMessageHash(saltBytes, req.messageParts);
                         req.message.setHash(hash);
 
                         metadata = req.message.encode(req.tx.getOutputs().size(),appendMetadataMaxLen);
@@ -5055,6 +5071,12 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
                 return false;
             }
 
+            if(req.messageToCreate == null)
+            {
+                req.messageToCreate=new CSMessage();
+            }
+            req.messageToCreate.setPaymentRef(req.paymentRef);
+            
             log.info("PaymentRef metadata was successfully created.");
             
             return true;
@@ -6183,6 +6205,21 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
             {
                 s+=" Asset: " + entryBalance.getKey() + ": " + entryBalance.getValue() + "\n";
             }        
+            CSMessage message=CS.messageDB.getMessage(entryTxOut.getKey().getTxID().toString());
+            if(message != null)
+            {
+                if(message.getPaymentRef() != null)
+                {
+                    s+=" PaymentRef: " + message.getPaymentRef().getRef() + "\n";
+                }
+                if(message.getMessageParts() != null)
+                {
+                    for(CSMessage.CSMessagePart messagePart : message.getMessageParts())
+                    {
+                        s+=" Message: " + messagePart.contentFileName + ", Size: " + messagePart.contentSize + "\n";
+                    }
+                }
+            }
             s+="\n";
         }        
         

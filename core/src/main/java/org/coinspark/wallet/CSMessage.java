@@ -55,6 +55,7 @@ import java.util.logging.Logger;
 import org.coinspark.core.CSUtils;
 import org.coinspark.protocol.CoinSparkMessage;
 import org.coinspark.protocol.CoinSparkMessagePart;
+import org.coinspark.protocol.CoinSparkPaymentRef;
 import org.slf4j.LoggerFactory;
 import org.spongycastle.crypto.params.KeyParameter;
 
@@ -69,6 +70,7 @@ public class CSMessage {
     
     
     public enum CSMessageState{
+        PAYMENTREF_ONLY,                                                        // Message contain only payment reference
         NEVERCHECKED,                                                           // Message is just created, not retrieved yet
         NOT_FOUND,                                                              // Message is not found on delivery server
         PENDING,                                                                // Message is found on delivery server, but its validity is not confirmed yet
@@ -100,6 +102,9 @@ public class CSMessage {
             contentFileName=ContentFileName;
             contentSize=ContentSize;            
         }
+        CSMessagePart()
+        {
+        }
     }
     
     public class CSNonce
@@ -114,7 +119,7 @@ public class CSMessage {
     public class CSMessageParams
     {
         public String sender=null;
-        public String seed=null;
+        public String salt=null;
         public boolean isPublic=false;
         public String [] recipients=null;
         public int keepseconds=0;
@@ -140,6 +145,7 @@ public class CSMessage {
     private KeyParameter aesKey;
     private String [] addresses; 
     private CSMessageParams messageParams=null;
+    private CoinSparkPaymentRef paymentRef=null;
 
     protected int getOffsetInDB(){return offsetInDB;}
             
@@ -152,6 +158,13 @@ public class CSMessage {
     public CSMessagePart [] getMessageParts(){return messageParts;}
     public String getServerURL(){return serverURL;}
     public CSMessageParams getMessageParams(){return messageParams;} 
+    
+    public CoinSparkPaymentRef getPaymentRef(){return paymentRef;}
+    
+    public void setPaymentRef(CoinSparkPaymentRef PaymentRef)
+    {
+        paymentRef=PaymentRef;
+    }
     
     public void setAesKey(KeyParameter AesKey)
     {
@@ -180,12 +193,20 @@ public class CSMessage {
         txID=TxID;
     }
     
-    protected boolean set(String TxID,int countOutputs,CoinSparkMessage Message,CoinSparkMessagePart [] MessageParts,CSMessage.CSMessageParams MessageParams,int OffsetInDB,String DirName)
+    protected boolean set(String TxID,int countOutputs,CoinSparkPaymentRef PaymentRef,CoinSparkMessage Message,CoinSparkMessagePart [] MessageParts,CSMessage.CSMessageParams MessageParams,int OffsetInDB,String DirName)
     {
         offsetInDB=OffsetInDB;            
         txID=TxID;        
         dirName=DirName + txID + File.separator;
         defFileName=dirName + "message.def";
+        paymentRef=PaymentRef;
+        
+        if(Message == null)
+        {
+            messageState=CSMessageState.PAYMENTREF_ONLY;
+            return true;
+        }
+        
         messageParams=MessageParams;
         if(messageParams.isSent)
         {
@@ -200,13 +221,21 @@ public class CSMessage {
         return saveDef(TxID, countOutputs, Message);
     }
     
-    protected boolean set(String TxID,int countOutputs,CoinSparkMessage Message,String [] Addresses,int OffsetInDB,String DirName)
+    protected boolean set(String TxID,int countOutputs,CoinSparkPaymentRef PaymentRef,CoinSparkMessage Message,String [] Addresses,int OffsetInDB,String DirName)
     {
         offsetInDB=OffsetInDB;            
         txID=TxID;        
         dirName=DirName + txID + File.separator;
         defFileName=dirName + "message.def";
         addresses=Addresses;        
+        
+        paymentRef=PaymentRef;
+        
+        if(Message == null)
+        {
+            messageState=CSMessageState.PAYMENTREF_ONLY;
+            return true;
+        }
         
         setState(CSMessageState.NEVERCHECKED);
         return saveDef(TxID, countOutputs, Message);
@@ -218,8 +247,15 @@ public class CSMessage {
         txID=CSUtils.byte2Hex(Arrays.copyOfRange(Serialized, off, off+32));
         dirName=DirName + txID + File.separator;
         defFileName=dirName + "message.def";
-        parts=CSUtils.littleEndianToInt(Serialized, off+32);
-        size=CSUtils.littleEndianToInt(Serialized, off+36);
+        long paymentRefLong=CSUtils.littleEndianToLong(Serialized, off+32);
+        if(paymentRefLong>CoinSparkPaymentRef.COINSPARK_PAYMENT_REF_MAX)
+        {
+            paymentRef=null;
+        }
+        else
+        {
+            paymentRef=new CoinSparkPaymentRef(paymentRefLong);
+        }
         checked=null;
         checked=new Date((long)CSUtils.littleEndianToInt(Serialized, off+40)*1000);
         failures=CSUtils.littleEndianToInt(Serialized, off+44) & 0xFFFFFF;
@@ -241,7 +277,7 @@ public class CSMessage {
             case 12: messageState= CSMessage.CSMessageState.ADDRESSES_NOT_ACCEPTED;break;
             case 13: messageState= CSMessage.CSMessageState.ADDRESSES_SUSPENDED;break;
             case 14: messageState= CSMessage.CSMessageState.DELETED;break;
-                
+            case 15: messageState= CSMessage.CSMessageState.PAYMENTREF_ONLY;break;                
         }
         
         return true;
@@ -269,6 +305,7 @@ public class CSMessage {
                 break;
             case SELF:
             case VALID:
+            case PAYMENTREF_ONLY:
                 checked=new Date();
                 failures=0;
                 break;
@@ -305,12 +342,19 @@ public class CSMessage {
             case ADDRESSES_NOT_ACCEPTED:messageCode=12;break;
             case ADDRESSES_SUSPENDED:   messageCode=13;break;
             case DELETED:        messageCode=14;break;
+            case PAYMENTREF_ONLY: messageCode=15;break;
         }            
 
         byte[] s=new byte[48];
         System.arraycopy(CSUtils.hex2Byte(txID), 0, s, 0, 32);
-        CSUtils.littleEndianByteArray(parts, s, 32);
-        CSUtils.littleEndianByteArray(size, s, 36);
+        if(paymentRef==null)
+        {
+            CSUtils.littleEndianByteArray(CoinSparkPaymentRef.COINSPARK_PAYMENT_REF_MAX+1, s, 32);
+        }
+        else
+        {
+            CSUtils.littleEndianByteArray(paymentRef.ref, s, 32);
+        }
         CSUtils.littleEndianByteArray(ts, s, 40);
         CSUtils.littleEndianByteArray(CSUtils.codedSize(failures,messageCode), s, 44);
         return s;
@@ -388,7 +432,7 @@ public class CSMessage {
         sb.append("Hash=").append(CSUtils.byte2Hex(hash)).append("\n");
         sb.append("SentByThisWallet=").append(messageParams.isSent ? "1" : "0").append("\n");
         sb.append("Public=").append(messageParams.isPublic ? "1" : "0").append("\n");
-        if(messageParams.seed != null)sb.append("Seed=").append(messageParams.seed).append("\n");
+        if(messageParams.salt != null)sb.append("Salt=").append(messageParams.salt).append("\n");
         sb.append("KeepSeconds=").append(messageParams.keepseconds).append("\n");
         if(messageParams.sender != null)sb.append("Sender=").append(messageParams.sender).append("\n");
         sb.append("Server=").append(serverURL).append("\n");
@@ -535,9 +579,9 @@ public class CSMessage {
                 {
                     messageParams.sender=suffix;
                 }
-                if("Seed".equals(prefix))
+                if("Salt".equals(prefix))
                 {
-                    messageParams.seed=suffix;
+                    messageParams.salt=suffix;
                 }
                 if("KeepSeconds".equals(prefix))
                 {
@@ -570,31 +614,35 @@ public class CSMessage {
                     {
                         result=false;
                     }
+                    else
+                    {
+                        messageParts[part]=new CSMessagePart();
+                    }
                 }
                 if("MimeType".equals(prefix))
                 {
-                    if((messageParts != null) && (part>=0) && (parts<messageParts.length))
+                    if((messageParts != null) && (part>=0) && (part<messageParts.length))
                     {
                         messageParts[part].mimeType=suffix;
                     }
                 }
                 if("FileName".equals(prefix))
                 {
-                    if((messageParts != null) && (part>=0) && (parts<messageParts.length))
+                    if((messageParts != null) && (part>=0) && (part<messageParts.length))
                     {
                         messageParts[part].fileName=suffix;
                     }
                 }
                 if("Size".equals(prefix))
                 {
-                    if((messageParts != null) && (part>=0) && (parts<messageParts.length))
+                    if((messageParts != null) && (part>=0) && (part<messageParts.length))
                     {
                         messageParts[part].contentSize=Integer.parseInt(suffix);
                     }
                 }
                 if("Content".equals(prefix))
                 {
-                    if((messageParts != null) && (part>=0) && (parts<messageParts.length))
+                    if((messageParts != null) && (part>=0) && (part<messageParts.length))
                     {
                         messageParts[part].contentFileName=suffix;
                     }
@@ -678,6 +726,10 @@ public class CSMessage {
     
     protected CSMessage load()
     {
+        if(messageState == CSMessageState.PAYMENTREF_ONLY)
+        {
+            return this;
+        }
         if(!loadDef())
         {
             corrupted=true;
@@ -805,6 +857,7 @@ public class CSMessage {
             case VALID:
             case SELF:
             case EXPIRED:
+            case PAYMENTREF_ONLY:
                 interval=never;
                 break;
             case ENCRYPTED_KEY:
@@ -1081,7 +1134,7 @@ public class CSMessage {
         public boolean ispublic;
         public String [] recipients;
         public int keepseconds;
-        public String seed;
+        public String salt;
         public JRequestPreCreateMessagePart [] message;
     }
 
@@ -1093,7 +1146,7 @@ public class CSMessage {
         
         params.sender=messageParams.sender;
         params.ispublic=messageParams.isPublic;
-        params.seed=messageParams.seed;
+        params.salt=messageParams.salt;
         params.keepseconds=messageParams.keepseconds;
         params.recipients=messageParams.recipients;
         params.message=new JRequestPreCreateMessagePart[MessageParts.length];
@@ -1173,7 +1226,7 @@ public class CSMessage {
         public boolean ispublic;
         public String [] recipients;
         public int keepseconds;
-        public String seed;
+        public String salt;
         public JRequestCreateMessagePart [] message;
     }
 
@@ -1192,7 +1245,7 @@ public class CSMessage {
         params.signature=getSignature(wallet, messageParams.sender, Nonce);
         params.sender=messageParams.sender;
         params.ispublic=messageParams.isPublic;
-        params.seed=messageParams.seed;
+        params.salt=messageParams.salt;
         params.keepseconds=messageParams.keepseconds;
         params.recipients=messageParams.recipients;
         params.message=new JRequestCreateMessagePart[MessageParts.length];
@@ -1345,14 +1398,14 @@ public class CSMessage {
         
         if(Nonce.error == CSUtils.CSServerError.NOERROR)
         {
-            if((response.result.get("seed") == null))
+            if((response.result.get("salt") == null))
             {
-                Nonce.errorMessage="seed not found in retrieve query";
+                Nonce.errorMessage="salt not found in retrieve query";
                 Nonce.error=CSUtils.CSServerError.RESPONSE_INVALID;
             }
             else
             {   
-                messageParams.seed=response.result.get("seed").getAsString();
+                messageParams.salt=response.result.get("salt").getAsString();
             }            
         }
         
@@ -1417,7 +1470,7 @@ public class CSMessage {
         
         if(Nonce.error == CSUtils.CSServerError.NOERROR)
         {
-            byte [] receivedHash = CoinSparkMessage.calcMessageHash(Base64.decode(messageParams.seed), receivedParts);
+            byte [] receivedHash = CoinSparkMessage.calcMessageHash(Base64.decode(messageParams.salt), receivedParts);
             
             if(!Arrays.equals(Arrays.copyOf(hash, hashLen), Arrays.copyOf(receivedHash, hashLen)))
             {

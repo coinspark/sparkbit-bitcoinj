@@ -40,6 +40,7 @@ import org.coinspark.protocol.CoinSparkAssetRef;
 import org.coinspark.protocol.CoinSparkBase;
 import org.coinspark.protocol.CoinSparkGenesis;
 import org.coinspark.protocol.CoinSparkMessage;
+import org.coinspark.protocol.CoinSparkPaymentRef;
 import org.coinspark.protocol.CoinSparkTransfer;
 import org.coinspark.protocol.CoinSparkTransferList;
 
@@ -48,6 +49,7 @@ public class CSTransactionAssets {
     private CoinSparkGenesis genesis = null;
     private CoinSparkTransferList transfers = null;
     private CoinSparkMessage message=null;
+    private CoinSparkPaymentRef paymentRef=null;
     private Transaction parentTransaction;
 
     public CSTransactionAssets()
@@ -88,6 +90,12 @@ public class CSTransactionAssets {
             if(!message.decode(txnMetaData,  ParentTx.getOutputs().size()))
             {
                 message=null;
+            }
+            
+            paymentRef=new CoinSparkPaymentRef();
+            if(!paymentRef.decode(txnMetaData))
+            {
+                paymentRef=null;
             }
             
         }
@@ -414,12 +422,16 @@ public class CSTransactionAssets {
             output_id++;
         }        
         
+        if(addressCount == 0)
+        {
+            message=null;
+        }
         
-        if(addressCount>0)
+        if((addressCount>0) || (paymentRef != null))
         {            
             if(messageDB != null)
             {
-                messageDB.insertReceivedMessage(hash.toString(), parentTransaction.getOutputs().size(), message, Arrays.copyOf(messageAddresses, addressCount));
+                messageDB.insertReceivedMessage(hash.toString(), parentTransaction.getOutputs().size(), paymentRef, message, Arrays.copyOf(messageAddresses, addressCount));
             }
         }
         
