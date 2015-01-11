@@ -2174,7 +2174,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
 //                feeCalculation = new FeeCalculation(req, value, originalInputs, needAtLeastReferenceFee, candidates);
                 // Fee and inputs calculation
                 
-/*                
+/*               
                 CoinSparkMessagePart [] MessageParts=new CoinSparkMessagePart[1];
                 MessageParts[0]=new CoinSparkMessagePart();
                 MessageParts[0].mimeType="text/plain";
@@ -2182,6 +2182,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
                 MessageParts[0].content="Hello World!".getBytes();
                 String [] DeliveryServers=new String [] {"assets1.coinspark.org/","assets1.coinspark.org/abc"};//,"144.76.175.228/" };
                 req.setMessage(MessageParts, DeliveryServers);
+
                 CoinSparkPaymentRef paymentRef=new CoinSparkPaymentRef(125);
                 req.setPaymentRef(paymentRef);
 */
@@ -2230,11 +2231,11 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
                 req.tx.addInput(output);
 
 /* CSPK-mike START */                
-            if(!CS.prepareMessage(req))
-            {
-                throw new CSExceptions.CannotEncode("Cannot prepare message");
-            }
             if(!CS.preparePaymentRef(req))
+            {
+                throw new CSExceptions.CannotEncode("Cannot prepare payment reference");
+            }
+            if(!CS.prepareMessage(req))
             {
                 throw new CSExceptions.CannotEncode("Cannot prepare message");
             }
@@ -2347,16 +2348,21 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
 // After inputs are signed we can send messahe ot delivery server
         if(sendRequest.messageToCreate != null)
         {
-            CS.log.info("Sending message for tx "+ sendRequest.tx.getHashAsString() + " to delivery server " + sendRequest.messageToCreate.getServerURL());
-            sendRequest.messageToCreate.setTxID(sendRequest.tx.getHashAsString());
-            if(!sendRequest.messageToCreate.create(this, sendRequest.messageParts, sendRequest.createNonce))
+            if(sendRequest.messageParts != null)
             {
-                CS.log.info("Cannot create message for tx "+ sendRequest.tx.getHashAsString() + " on delivery server " + sendRequest.messageToCreate.getServerURL());
-                throw new CSExceptions.CannotEncode("Cannot send message to delivery server");
+                CS.log.info("Sending message for tx "+ sendRequest.tx.getHashAsString() + " to delivery server " + sendRequest.messageToCreate.getServerURL());
+                sendRequest.messageToCreate.setTxID(sendRequest.tx.getHashAsString());
+
+                if(!sendRequest.messageToCreate.create(this, sendRequest.messageParts, sendRequest.createNonce))
+                {
+                    CS.log.info("Cannot create message for tx "+ sendRequest.tx.getHashAsString() + " on delivery server " + sendRequest.messageToCreate.getServerURL());
+                    throw new CSExceptions.CannotEncode("Cannot send message to delivery server");
+                }
             }
-            
+
             if(!CS.messageDB.insertSentMessage(sendRequest.tx.getHashAsString(), 
                                            sendRequest.tx.getOutputs().size(), 
+                                           sendRequest.messageToCreate.getPaymentRef(),
                                            sendRequest.message, 
                                            sendRequest.messageParts,
                                            sendRequest.messageToCreate.getMessageParams()))
@@ -2365,7 +2371,11 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
                 throw new CSExceptions.CannotEncode("Cannot store message in the database");
             }
 
-            CS.log.info("Message for tx "+ sendRequest.tx.getHashAsString() + " was successfully sent via delivery server " + sendRequest.messageToCreate.getServerURL());
+
+            if(sendRequest.messageParts != null)
+            {
+                CS.log.info("Message for tx "+ sendRequest.tx.getHashAsString() + " was successfully sent via delivery server " + sendRequest.messageToCreate.getServerURL());
+            }
         }
 /* CSPK-mike END */    
     }
@@ -4625,7 +4635,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
             
             balanceDB=new CSBalanceDatabase(FilePrefix, assetDB,log);
 
-//            messageDB=new CSMessageDatabase(FilePrefix, log, wallet);
+            messageDB=new CSMessageDatabase(FilePrefix, log, wallet);
             
             log.info("Wallet started");
 
@@ -4838,6 +4848,12 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
             new Random().nextBytes(seedBytes);
             
             req.messageToCreate=new CSMessage();
+            
+            if(req.paymentRef != null)
+            {
+                req.messageToCreate.setPaymentRef(req.paymentRef);
+            }
+            
             CSMessage.CSMessageParams messageParams=req.messageToCreate.new CSMessageParams();
             
             messageParams.isSent=true;
@@ -5015,6 +5031,12 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
                 return false;
             }
 
+            if(req.messageToCreate == null)
+            {
+                req.messageToCreate=new CSMessage();
+            }
+            req.messageToCreate.setPaymentRef(req.paymentRef);
+            
             log.info("PaymentRef metadata was successfully created.");
             
             return true;
@@ -6143,6 +6165,21 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
             {
                 s+=" Asset: " + entryBalance.getKey() + ": " + entryBalance.getValue() + "\n";
             }        
+            CSMessage message=CS.messageDB.getMessage(entryTxOut.getKey().getTxID().toString());
+            if(message != null)
+            {
+                if(message.getPaymentRef() != null)
+                {
+                    s+=" PaymentRef: " + message.getPaymentRef().getRef() + "\n";
+                }
+                if(message.getMessageParts() != null)
+                {
+                    for(CSMessage.CSMessagePart messagePart : message.getMessageParts())
+                    {
+                        s+=" Message: " + messagePart.contentFileName + ", Size: " + messagePart.contentSize + "\n";
+                    }
+                }
+            }
             s+="\n";
         }        
         

@@ -260,5 +260,5 @@
             <type>jar</type>
         </dependency>
     </dependencies>
-
+    <version>0.2-CS-0.11.2-MB-ALICE</version>
 </project>
