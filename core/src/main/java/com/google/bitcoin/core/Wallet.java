@@ -88,6 +88,10 @@ import org.coinspark.wallet.CSMessage;
 import org.coinspark.wallet.CSMessageDatabase;
 import org.coinspark.wallet.CSTransactionAssets;
 import org.coinspark.wallet.CSTransactionOutput;
+import org.coinspark.protocol.CoinSparkPaymentRef;
+import org.coinspark.wallet.CSEventType;
+import org.coinspark.wallet.CSEventBus;
+
 import org.jboss.netty.logging.Log4JLoggerFactory;
 
 // To do list:
@@ -912,7 +916,39 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
             
             CSTransactionAssets txAssets=new CSTransactionAssets(tx);
             txAssets.updateAssetBalances(this,blockHeight,CS.getInputAssetBalances(tx));            
-        }
+	    
+	    /*
+	    Look for payment reference and post CSEvent if found
+	    */
+	    final int FBHCHAIN_START_BLOCK = 312500; // July 26th 2014
+	    // optimise, only check from period when assets were first being created
+	    if (blockHeight > FBHCHAIN_START_BLOCK) {
+		log.info("!!!! Extracting CoinSpark payment reference from a transaction...");
+
+		byte[] txnMetaData = null;
+            //int metadataOutput=0;
+		//int count=0;
+		for (TransactionOutput output : tx.getOutputs()) {
+		    
+		    // TRANSACTION_PAYMENT_REFERENCE_DETECTED
+		    byte[] scriptBytes = output.getScriptBytes();
+		    if (!CoinSparkBase.scriptIsRegular(scriptBytes)) {
+			txnMetaData = CoinSparkBase.scriptToMetadata(scriptBytes);
+			break;
+		    }
+		}
+		
+		if (txnMetaData != null) {
+		    CoinSparkPaymentRef paymentRef = new CoinSparkPaymentRef();
+		    if (paymentRef.decode(txnMetaData)) {
+			log.info("!!!! Found Payment Ref: " + paymentRef.toString());
+			HashMap<String, Long> map = new HashMap<String, Long>();
+			map.put(tx.getHashAsString(), paymentRef.getRef());
+			CSEventBus.INSTANCE.postAsyncEvent(CSEventType.TRANSACTION_PAYMENT_REFERENCE_RECEIVED, map);
+		    }
+		}
+	    }
+	}
 /* CSPK-mike END */
         
         // If the transaction is being replayed no need to add it to the wallet again.
@@ -1851,6 +1887,10 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
         {
             paymentRef=PaymentRef;
         }
+	
+	public CoinSparkPaymentRef getPaymentRef() {
+	    return paymentRef;
+	}
         
         
         

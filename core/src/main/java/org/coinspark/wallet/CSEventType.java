@@ -36,4 +36,6 @@ public enum CSEventType {
     ASSET_VISIBILITY_CHANGED, // payload: int assetid
     MESSAGE_RETRIEVAL_STARTED,                                                  // payload: String TxID
     MESSAGE_RETRIEVAL_COMPLETED,                                                // payload: String TxID
+    TRANSACTION_PAYMENT_REFERENCE_RECEIVED,	// payload: Map<String TxID, int paymentRef> 
+    TRANSACTION_PAYMENT_REFERENCE_INSERTED,	// payload: Map<String TxID, int paymentRef> 
 }
