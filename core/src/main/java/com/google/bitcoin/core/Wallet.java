@@ -4844,8 +4844,8 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
             pubKeyHash=new Address(wallet.getNetworkParameters(), key.getPubKeyHash());
             String recipient=pubKeyHash.toString();
             
-            byte[] seedBytes = new byte[16];
-            new Random().nextBytes(seedBytes);
+            byte[] saltBytes = new byte[16];
+            new Random().nextBytes(saltBytes);
             
             req.messageToCreate=new CSMessage();
             
@@ -4861,7 +4861,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
             messageParams.sender=sender;
             messageParams.keepseconds=req.KeepSeconds;
             messageParams.recipients=new String [] {recipient};
-            messageParams.seed=Base64.encode(seedBytes);
+            messageParams.salt=Base64.encode(saltBytes);
                     
             req.messageToCreate.setAesKey(req.aesKey);
             req.messageToCreate.setMessageParams(messageParams);
@@ -4919,7 +4919,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
 
                         int hashLen=req.message.calcHashLen(req.tx.getOutputs().size(), appendMetadataMaxLen); 
                         req.message.setHashLen(hashLen);
-                        byte[] hash = CoinSparkMessage.calcMessageHash(seedBytes, req.messageParts);
+                        byte[] hash = CoinSparkMessage.calcMessageHash(saltBytes, req.messageParts);
                         req.message.setHash(hash);
 
                         metadata = req.message.encode(req.tx.getOutputs().size(),appendMetadataMaxLen);

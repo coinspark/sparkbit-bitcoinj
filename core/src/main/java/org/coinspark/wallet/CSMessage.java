@@ -119,7 +119,7 @@ public class CSMessage {
     public class CSMessageParams
     {
         public String sender=null;
-        public String seed=null;
+        public String salt=null;
         public boolean isPublic=false;
         public String [] recipients=null;
         public int keepseconds=0;
@@ -432,7 +432,7 @@ public class CSMessage {
         sb.append("Hash=").append(CSUtils.byte2Hex(hash)).append("\n");
         sb.append("SentByThisWallet=").append(messageParams.isSent ? "1" : "0").append("\n");
         sb.append("Public=").append(messageParams.isPublic ? "1" : "0").append("\n");
-        if(messageParams.seed != null)sb.append("Seed=").append(messageParams.seed).append("\n");
+        if(messageParams.salt != null)sb.append("Salt=").append(messageParams.salt).append("\n");
         sb.append("KeepSeconds=").append(messageParams.keepseconds).append("\n");
         if(messageParams.sender != null)sb.append("Sender=").append(messageParams.sender).append("\n");
         sb.append("Server=").append(serverURL).append("\n");
@@ -579,9 +579,9 @@ public class CSMessage {
                 {
                     messageParams.sender=suffix;
                 }
-                if("Seed".equals(prefix))
+                if("Salt".equals(prefix))
                 {
-                    messageParams.seed=suffix;
+                    messageParams.salt=suffix;
                 }
                 if("KeepSeconds".equals(prefix))
                 {
@@ -1134,7 +1134,7 @@ public class CSMessage {
         public boolean ispublic;
         public String [] recipients;
         public int keepseconds;
-        public String seed;
+        public String salt;
         public JRequestPreCreateMessagePart [] message;
     }
 
@@ -1146,7 +1146,7 @@ public class CSMessage {
         
         params.sender=messageParams.sender;
         params.ispublic=messageParams.isPublic;
-        params.seed=messageParams.seed;
+        params.salt=messageParams.salt;
         params.keepseconds=messageParams.keepseconds;
         params.recipients=messageParams.recipients;
         params.message=new JRequestPreCreateMessagePart[MessageParts.length];
@@ -1226,7 +1226,7 @@ public class CSMessage {
         public boolean ispublic;
         public String [] recipients;
         public int keepseconds;
-        public String seed;
+        public String salt;
         public JRequestCreateMessagePart [] message;
     }
 
@@ -1245,7 +1245,7 @@ public class CSMessage {
         params.signature=getSignature(wallet, messageParams.sender, Nonce);
         params.sender=messageParams.sender;
         params.ispublic=messageParams.isPublic;
-        params.seed=messageParams.seed;
+        params.salt=messageParams.salt;
         params.keepseconds=messageParams.keepseconds;
         params.recipients=messageParams.recipients;
         params.message=new JRequestCreateMessagePart[MessageParts.length];
@@ -1398,14 +1398,14 @@ public class CSMessage {
         
         if(Nonce.error == CSUtils.CSServerError.NOERROR)
         {
-            if((response.result.get("seed") == null))
+            if((response.result.get("salt") == null))
             {
-                Nonce.errorMessage="seed not found in retrieve query";
+                Nonce.errorMessage="salt not found in retrieve query";
                 Nonce.error=CSUtils.CSServerError.RESPONSE_INVALID;
             }
             else
             {   
-                messageParams.seed=response.result.get("seed").getAsString();
+                messageParams.salt=response.result.get("salt").getAsString();
             }            
         }
         
@@ -1470,7 +1470,7 @@ public class CSMessage {
         
         if(Nonce.error == CSUtils.CSServerError.NOERROR)
         {
-            byte [] receivedHash = CoinSparkMessage.calcMessageHash(Base64.decode(messageParams.seed), receivedParts);
+            byte [] receivedHash = CoinSparkMessage.calcMessageHash(Base64.decode(messageParams.salt), receivedParts);
             
             if(!Arrays.equals(Arrays.copyOf(hash, hashLen), Arrays.copyOf(receivedHash, hashLen)))
             {
