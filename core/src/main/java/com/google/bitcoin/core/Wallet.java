@@ -91,6 +91,8 @@ import org.coinspark.wallet.CSTransactionOutput;
 import org.coinspark.protocol.CoinSparkPaymentRef;
 import org.coinspark.wallet.CSEventType;
 import org.coinspark.wallet.CSEventBus;
+import org.coinspark.wallet.CSNonce;
+import org.coinspark.wallet.CSMessagePart;
 
 import org.jboss.netty.logging.Log4JLoggerFactory;
 
@@ -1863,7 +1865,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
         private String[] deliveryServers=null;
         private int KeepSeconds=86400;
         private CSMessage messageToCreate=null;
-        private CSMessage.CSNonce createNonce=null;
+        private CSNonce createNonce=null;
         private CoinSparkMessage message=null;
         
         
@@ -4865,29 +4867,24 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
             
             key=null;
             Script connectedScript = req.tx.getOutput(0).getScriptPubKey();
-            if (connectedScript.isSentToAddress()) {
-                byte[] addressBytes = connectedScript.getPubKeyHash();
-                key=wallet.findKeyFromPubHash(addressBytes);
-            } 
-            else 
-            {
-                if (connectedScript.isSentToRawPubKey()) 
-                {
-                    byte[] pubkeyBytes = connectedScript.getPubKey();
-                    key=wallet.findKeyFromPubKey(pubkeyBytes);
-                }
-            }
-            if(key == null)
-            {
-                return false;
-            }
-            pubKeyHash=new Address(wallet.getNetworkParameters(), key.getPubKeyHash());
-            String recipient=pubKeyHash.toString();
+	    
+	    String recipient = null;
+	    
+	    if (connectedScript.isSentToAddress()) {
+		recipient = connectedScript.getToAddress(wallet.getNetworkParameters()).toString();
+	    } else if (connectedScript.isSentToRawPubKey()) {
+		byte[] pubKeyBytes = connectedScript.getPubKey();
+		recipient = new Address(wallet.getNetworkParameters(), pubKeyBytes).toString();
+	    }
+	    
+	    if (recipient==null) {
+		return false;
+	    }
             
             byte[] saltBytes = new byte[16];
             new Random().nextBytes(saltBytes);
             
-            req.messageToCreate=new CSMessage();
+            req.messageToCreate=new CSMessage(getMessageDB());
             
             if(req.paymentRef != null)
             {
@@ -4906,7 +4903,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
             req.messageToCreate.setAesKey(req.aesKey);
             req.messageToCreate.setMessageParams(messageParams);
             
-            req.createNonce =req.messageToCreate.new CSNonce();
+            req.createNonce = new CSNonce();
             req.createNonce.error=CSUtils.CSServerError.SERVER_NOT_FOUND;
             
             
@@ -5073,7 +5070,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
 
             if(req.messageToCreate == null)
             {
-                req.messageToCreate=new CSMessage();
+                req.messageToCreate=new CSMessage(getMessageDB());
             }
             req.messageToCreate.setPaymentRef(req.paymentRef);
             
@@ -6212,11 +6209,12 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
                 {
                     s+=" PaymentRef: " + message.getPaymentRef().getRef() + "\n";
                 }
+
                 if(message.getMessageParts() != null)
                 {
-                    for(CSMessage.CSMessagePart messagePart : message.getMessageParts())
+                    for(CSMessagePart messagePart : message.getMessageParts())
                     {
-                        s+=" Message: " + messagePart.contentFileName + ", Size: " + messagePart.contentSize + "\n";
+                        s+=" Message: fileName:" + messagePart.fileName + ", Size: " + messagePart.contentSize + "\n";
                     }
                 }
             }
