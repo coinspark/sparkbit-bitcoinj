@@ -6217,6 +6217,8 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
                         s+=" Message: fileName:" + messagePart.fileName + ", Size: " + messagePart.contentSize + "\n";
                     }
                 }
+		
+		s+=" Metadata:\n" + message.metadataToString() + "\n";
             }
             s+="\n";
         }        
