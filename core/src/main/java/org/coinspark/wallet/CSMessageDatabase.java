@@ -1,5 +1,5 @@
 /*
- * Copyright 2014 mike.
+ * Copyright 2014 Coin Sciences Ltd.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -18,227 +18,160 @@ package org.coinspark.wallet;
 
 import com.google.bitcoin.core.Wallet;
 import com.google.bitcoin.utils.Threading;
+import com.j256.ormlite.dao.Dao;
+import com.j256.ormlite.dao.DaoManager;
+import com.j256.ormlite.jdbc.JdbcConnectionSource;
+import com.j256.ormlite.support.ConnectionSource;
+import com.j256.ormlite.table.TableUtils;
 import java.io.File;
-import java.io.FileNotFoundException;
-import java.io.IOException;
-import java.io.RandomAccessFile;
-import java.util.Arrays;
-import java.util.HashMap;
-import java.util.Map;
+import java.nio.file.Files;
+import java.nio.file.Paths;
+import java.sql.SQLException;
+import java.util.HashSet;
+import java.util.List;
 import java.util.concurrent.locks.ReentrantLock;
 import org.coinspark.core.CSLogger;
-import org.coinspark.core.CSUtils;
 import org.coinspark.protocol.CoinSparkMessage;
 import org.coinspark.protocol.CoinSparkMessagePart;
 import org.coinspark.protocol.CoinSparkPaymentRef;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.h2.mvstore.*;
 
 /**
- *
- * @author mike
+ * 
  */
 public class CSMessageDatabase {
  
     private static final Logger log = LoggerFactory.getLogger(CSAssetDatabase.class);
     private CSLogger csLog;
     
-    protected final ReentrantLock lock = Threading.lock("assetdb");
+//    protected final ReentrantLock lock = Threading.lock("assetdb");
     
     private static final String MESSAGE_DB_SUFFIX = "messages.csdb";
     private static final String MESSAGE_DIR_SUFFIX = ".csmessages";
-        
-    private HashMap<String, CSMessage> mapByTxID=new HashMap<String, CSMessage>(16, 0.9f);
+    private static final String MESSAGE_H2_DB_SUFFIX = "messages.h2";
+    private static final String MESSAGE_H2_KVSTORE_SUFFIX = "messages.h2.kvstore";
+    private static final String MESSAGE_TX_DEF_MAP_NAME = "tx_def";
     
     private String fileName;
+    @Deprecated
     private String dirName;
     private int fileSize;
     private Wallet wallet;
-
+    
+    // H2 database
+    ConnectionSource connectionSource;
+    Dao<CSMessage, String> messageDao;
+    Dao<CSMessagePart, Long> messagePartDao;
+    
+    private MVStore kvStore;
+    private MVMap<String, Object> defMap;
+	    
     public CSMessageDatabase(String FilePrefix,CSLogger CSLog,Wallet ParentWallet)
     {
         dirName = FilePrefix + MESSAGE_DIR_SUFFIX+File.separator;
-        fileName = dirName + MESSAGE_DB_SUFFIX;
+        fileName = dirName + MESSAGE_H2_DB_SUFFIX;
         csLog=CSLog;
         wallet=ParentWallet;
-        
-        File theDir = new File(dirName);
+	
+	File dir = new File(dirName);
+	if (!dir.exists()) {
+	    // Files.createDirectory(Paths.get(dirName));
+	    try {
+		dir.mkdir();
+	    } catch (SecurityException ex) {
+		log.error("Message DB: Cannot create files directory" + ex.getClass().getName() + " " + ex.getMessage());
+		return;
+	    }
+	}
+	
+	
+	String kvStoreFileName = dirName + MESSAGE_H2_KVSTORE_SUFFIX;
+	kvStore = MVStore.open(kvStoreFileName);
+	if (kvStore != null) {
+	    defMap = kvStore.openMap(MESSAGE_TX_DEF_MAP_NAME);
+	}
+	
+	// FIXME: This database URL could be passed in via constructor
+	String databaseUrl = "jdbc:h2:file:" + fileName + ";USER=sa;PASSWORD=sa;AUTO_SERVER=TRUE";
 
-        if (!theDir.exists()) 
-        {
-            try{
-                theDir.mkdir();
-             } catch(SecurityException ex){
-                log.error("Message DB: Cannot create files directory" + ex.getClass().getName() + " " + ex.getMessage());                
-                return;
-             }        
-        }        
-        
-        load();
-    }
+	try {
+	    connectionSource = new JdbcConnectionSource(databaseUrl);
+	    messageDao = DaoManager.createDao(connectionSource, CSMessage.class);
+	    TableUtils.createTableIfNotExists(connectionSource, CSMessage.class);
 
-/**
- * Returns directory name where files should be stored 
- * @return 
- */    
-    
-    public String getDirName()
-    {
-        return dirName;
-    }
-    
-/**
- * Returns number of messages in the database
- * @return 
- */    
-    
-    public int getSize()
-    {
-        return mapByTxID.size();
-    }
+	    messagePartDao = DaoManager.createDao(connectionSource, CSMessagePart.class);
+	    TableUtils.createTableIfNotExists(connectionSource, CSMessagePart.class);
 
-    
-    private void load()
-    {        
-        RandomAccessFile aFile;
-        try {
-            aFile = new RandomAccessFile(fileName, "r");
-        } catch (FileNotFoundException ex) {
-            log.info("Message DB: Cannot open file " + ex.getClass().getName() + " " + ex.getMessage());                
-            return;
-        }
-                
-        fileSize=0;
-        try {  
-            fileSize = (int)aFile.length();                    
-        } catch (IOException ex) {
-            log.error("Message DB: Cannot get file size " + ex.getClass().getName() + " " + ex.getMessage());                
-            return;
-        }
-            
-        mapByTxID.clear();
-                
-        int off=0;
-        int size,code;
-        
-        byte[] Serialized=new byte[CSMessage.serializedSize];
-        while(off+CSMessage.serializedSize<=fileSize)
-        {
-            if(!CSUtils.readFromFileToBytes(aFile, Serialized))
-            {
-                log.error("Message DB: Cannot read file");                
-                return;
-            }            
-
-            CSMessage message=new CSMessage();
-            message.set(Serialized, 0, off, dirName);
-            mapByTxID.put(CSUtils.byte2Hex(Arrays.copyOf(Serialized, 32)), message);
-            
-            off+=CSMessage.serializedSize;            
-        }        
-        
-        if(off<fileSize)
-        {
-            log.error("Message DB: Corrupted file, on " + off);                
-            fileSize=off;
-            return;
-        }        
-        
-        try {
-            aFile.close();
-        } catch (IOException ex) {
-            log.error("Message DB: Cannot close file " + ex.getClass().getName() + " " + ex.getMessage());                
-        }        
-        
-        log.info("Message DB: File opened: " + fileName);                
+	} catch (SQLException e) {
+	    e.printStackTrace();
+	}
     }
     
-    private boolean saveMessage(String TxID,CSMessage Message,int Offset)
-    {
-        RandomAccessFile aFile;
-        
-        try {
-            aFile = new RandomAccessFile(fileName, "rw");
-        } catch (FileNotFoundException ex) {
-            log.info("Message DB: Cannot open file " + ex.getClass().getName() + " " + ex.getMessage());                
-            return false;
-        }
-        
-        try {
-            aFile.seek(Offset);
-        } catch (IOException ex) {
-            log.error("Message DB: Cannot set file position " + ex.getClass().getName() + " " + ex.getMessage());                
-            return false;
-        }
-        
-        try {
-            aFile.write(Message.serialize());
-        } catch (IOException ex) {
-            log.error("Message DB: Cannot write to file " + ex.getClass().getName() + " " + ex.getMessage());                
-            return false;
-        }
-
-        if(Offset>=fileSize)
-        {
-            fileSize=Offset+CSMessage.serializedSize;
-        }
-        
-        try {
-            aFile.close();
-        } catch (IOException ex) {
-            log.error("Message DB: Cannot close file " + ex.getClass().getName() + " " + ex.getMessage());                
-            return false;
-        }        
-        
-        return true;
+    // FIXME: make sure we free resources
+    public void shutdown() {
+	connectionSource.closeQuietly();
     }
+    
+    // FIXME: we want to have a connection pool for a central databaes
+    public ConnectionSource getConnectionSource() {
+	return connectionSource;
+    }
+    
+    public Dao<CSMessage, String> getMessageDao() {
+	return messageDao;
+    }
+
+    public Dao<CSMessagePart, Long> getMessagePartDao() {
+	return messagePartDao;
+    }
+
+    public MVMap getDefMap() {
+	return defMap;
+    }
+
     
     public boolean insertReceivedMessage(String TxID,int countOutputs,CoinSparkPaymentRef PaymentRef,CoinSparkMessage Message,String [] Addresses)
     {
+	log.debug(">>>> insertReceivedMessage() for wallet " + wallet.getDescription());
+
         if((Message == null) && (PaymentRef == null))
         {
             return false;
         }
         
-        if(mapByTxID.get(TxID) != null)
-        {
+	if (messageExists(TxID)) {
             log.info("Message DB: TxID " + TxID + " already in the database");                            
             return true;
         }
         
         boolean result=true;
-        CSMessage message=new CSMessage();
+        CSMessage message=new CSMessage(this);
         
-        lock.lock();
         try {                 
             
-            result=message.set(TxID, countOutputs, PaymentRef, Message,  Addresses, fileSize, dirName);
+            result=message.set(TxID, countOutputs, PaymentRef, Message,  Addresses);
             
             if(result)
             {
-                mapByTxID.put(TxID,message);
+		messageDao.createIfNotExists(message);
+		
+                log.info("Message DB: Tx " + TxID + " inserted");                
 
-                if(!saveMessage(TxID, message, fileSize))
-                {
-                    mapByTxID.remove(TxID);
-                    result=false;
-                }
-                else
-                {
-                    log.info("Message DB: Tx " + TxID + " inserted");                
-                }
             }
             else
             {
                 log.info("Message DB: Cannot insert message for Tx " + TxID + " inserted");                                
             }
-        } finally {
-            lock.unlock();
+
+	} catch (SQLException e) {
+	    e.printStackTrace();
         }
 
         if(result)
         {
-            csLog.info("Message DB: Inserted new Tx: " + TxID + ", State: " + message.messageState);
+            csLog.info("Message DB: Inserted new Tx: " + TxID + ", State: " + message.getMessageState());
         }
         
         return result;
@@ -246,50 +179,47 @@ public class CSMessageDatabase {
 
     public boolean insertSentMessage(String TxID,int countOutputs,CoinSparkPaymentRef PaymentRef,CoinSparkMessage Message,CoinSparkMessagePart [] MessageParts,CSMessage.CSMessageParams MessageParams)
     {
+	log.debug(">>>> insertSentMessage() for wallet " + wallet.getDescription());
+	
+	
         if((Message == null) && (PaymentRef == null))
         {
             return false;
         }
-        
-        if(mapByTxID.get(TxID) != null)
+
+	if (messageExists(TxID))
         {
             log.info("Message DB: TxID " + TxID + " already in the database");                            
             return true;
         }
         
         boolean result=true;
-        CSMessage message=new CSMessage();
+        CSMessage message=new CSMessage(this);
         
-        lock.lock();
         try {                 
             
-            result=message.set(TxID, countOutputs, PaymentRef, Message, MessageParts,MessageParams, fileSize, dirName);
+            result=message.set(TxID, countOutputs, PaymentRef, Message, MessageParts,MessageParams);
             
             if(result)
             {
-                mapByTxID.put(TxID,message);
+		messageDao.createIfNotExists(message);
+		log.info("Message DB: Tx " + TxID + " inserted");            
+		
+		 updateMessageParts(message);
 
-                if(!saveMessage(TxID, message, fileSize))
-                {
-                    mapByTxID.remove(TxID);
-                    result=false;
-                }
-                else
-                {
-                    log.info("Message DB: Tx " + TxID + " inserted");                
-                }
             }
             else
             {
                 log.info("Message DB: Cannot insert message for Tx " + TxID + " inserted");                                
             }
-        } finally {
-            lock.unlock();
-        }
 
+	} catch (SQLException e) {
+	    e.printStackTrace();
+        }
+	
         if(result)
         {
-            csLog.info("Message DB: Inserted new Tx: " + TxID + ", State: " + message.messageState);
+            csLog.info("Message DB: Inserted new Tx: " + TxID + ", State: " + message.getMessageState());
         }
         
         return result;
@@ -302,7 +232,7 @@ public class CSMessageDatabase {
             return false;
         }
         
-        if(mapByTxID.get(TxID) == null)
+	if (messageExists(TxID)==false)
         {
             log.info("Message DB: TxID " + TxID + " not in the database");                            
             return false;
@@ -310,69 +240,107 @@ public class CSMessageDatabase {
         
         boolean result=true;
         
-        lock.lock();
-        try {                        
-            mapByTxID.put(TxID,Message);
-            
-            if(!saveMessage(TxID, Message, Message.getOffsetInDB()))
-            {
-                mapByTxID.remove(TxID);
-                result=false;
-            }
-            else
-            {
-                log.info("Message DB: Tx " + TxID + " inserted");                
-            }
-        } finally {
-            lock.unlock();
+        try {
+    
+	    messageDao.update(Message);
+            log.info("Message DB: Tx " + TxID + " updated");                
+
+	} catch (SQLException e) {
+	    e.printStackTrace();
         }
-        
-        csLog.info("Message DB: Updated Tx: " + TxID + ", State: " + Message.messageState);
+	
+        csLog.info("Message DB: Updated Tx: " + TxID + ", State: " + Message.getMessageState());
         return result;
     }
     
-    
-    public CSMessage getMessage(String TxID)
-    {
-        if(TxID == null)
-        {
-            return null;
-        }
-        
-        CSMessage message=mapByTxID.get(TxID);                
-                
-        if(message == null)
-        {
-            return null;
-        }
-        
-        return message.load();
+    public boolean messageExists(String txid) {
+	boolean b = false;
+	try {
+	     b = messageDao.idExists(txid);
+	} catch (SQLException e) {
+	    e.printStackTrace();
+	}
+	return b;
     }
+    
+    public CSMessage getMessage(String txid) {
+	CSMessage msg = null;
+	try {
+	     msg = messageDao.queryForId(txid);
+	     msg.init(this);
+	} catch (SQLException e) {
+	    e.printStackTrace();
+	}
+	return msg;
+    }
+
 
     private boolean retrievalInProgress=false;
     
     public void retrieveMessages()
     {
+		log.debug(">>>> retrieveMessages() for wallet " + wallet.getDescription());
+
         if(retrievalInProgress){
             return;            
         }
         
         retrievalInProgress=true;
 
-                                
-        for (Map.Entry<String, CSMessage> entryMessage : mapByTxID.entrySet()) 
-        {
-            CSMessage message=entryMessage.getValue();
-                        
-            if(message.mayBeRetrieve(wallet))
-            {
-                updateMessage(entryMessage.getKey(), message);
-                CSEventBus.INSTANCE.postAsyncEvent(CSEventType.MESSAGE_RETRIEVAL_COMPLETED, message.getTxID());
-            }
-            
-        }        
+        // query for all items in the database
+	try {
+	    // TODO: Query where not SELF or VALID state, order etc...
+	    List<CSMessage> messages = messageDao.queryForAll();
+	    // NOTE: could also be CSMessage message : messageDao (which can act as iterator)
+	    for (CSMessage message : messages) {
+		
+		log.debug(">>>> mayBeRetrieve() for wallet " + wallet.getDescription());
+
+		// Initialise message with MessageDatabase
+		// Other things may need to be set e.g. CSMessageParams bean, or CSMessageMeta bean.
+		message.init(this);
+		
+		log.debug(">>>> Invoke mayBeRetrieve for " + message.getTxID());
+		
+		if(message.mayBeRetrieve(wallet)) {
+
+		    log.debug(">>>> mayBeRetrieve returned TRUE");
+		    // TODO: See ormlite docs about a better way? e.g.  account.orders.update(order);
+		    
+		    updateMessageParts(message);
+
+		    // query for id below will refresh message object
+				    
+		    updateMessage(message.getTxID(), message);
+		    CSEventBus.INSTANCE.postAsyncEvent(CSEventType.MESSAGE_RETRIEVAL_COMPLETED, message.getTxID());
+		}
+		else {
+		    // update fields even if parts not saved.
+		     updateMessage(message.getTxID(), message);
+		}
+	    }
+	} catch (SQLException e) {
+	    e.printStackTrace();
+	}     
 
         retrievalInProgress=false;
     }
     
+    public void updateMessageParts(CSMessage message) throws SQLException {
+	HashSet<CSMessagePart> set = message.retrievedMessageParts;
+	if (set != null) {
+	    log.debug(">>>> retrievedMessageParts number = " + set.size());
+	    for (CSMessagePart part : set) {
+		log.debug(">>>> Invoke messagePartDao.createOrUpdate() for part:");
+		log.debug(">>>>  fileName = " + part.fileName);
+		log.debug(">>>>  contentSize =" + part.contentSize);
+		log.debug(">>>>  partID = " + part.partID);
+
+		Dao.CreateOrUpdateStatus status = messagePartDao.createOrUpdate(part);
+		log.debug(">>> status created? = " + status.isCreated());
+		log.debug(">>> status updated? = " + status.isUpdated());
+		log.debug(">>> status lines changed  = " + status.getNumLinesChanged());
+	    }
+	}
+    }
 }
