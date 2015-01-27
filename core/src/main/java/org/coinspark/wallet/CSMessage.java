@@ -47,7 +47,6 @@ import java.util.Arrays;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.HashSet;
 import java.util.List;
 import org.apache.commons.beanutils.BeanUtils;
 import org.coinspark.core.CSUtils;
@@ -261,9 +260,6 @@ public class CSMessage {
     private CSMessageDatabase db;
 
     private int messageRetrievalState;
-
-    // Temporary collection of retreived message parts, to be added to messageParts.
-    public HashSet retrievedMessageParts;
     
     // Convenience function to hide that hash byte[] is stored as string.
     public byte[] getHashBytes() {
@@ -704,17 +700,22 @@ public class CSMessage {
 
 	numParts = MessageParts.length;
 
-	HashSet<CSMessagePart> set = new HashSet<CSMessagePart>();
+	List<CSMessagePart> parts = new ArrayList<CSMessagePart>();
 	for (int i = 0; i < numParts; i++) {
 	    CoinSparkMessagePart c = MessageParts[i];
 	    log.debug(">>>> MESSAGE PART: " + c.mimeType + " , " + c.content.length + " , name=" + c.fileName);
 	    CSMessagePart p = new CSMessagePart(i + 1, c.mimeType, c.fileName, c.content.length, c.content);
 	    p.message = this; // set foreign reference
-	    set.add(p);
+	    parts.add(p);
 	}
 	
-	// FIXME: Temporary fudge to store saved parts to be later inserted into db.
-	retrievedMessageParts = set;
+	try {
+	    this.db.persistMessageParts(parts);
+	} catch (Exception e) {
+	    e.printStackTrace();
+	    return false;
+	}
+	
 	return true;
     }
 

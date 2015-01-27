@@ -17,19 +17,14 @@
 package org.coinspark.wallet;
 
 import com.google.bitcoin.core.Wallet;
-import com.google.bitcoin.utils.Threading;
 import com.j256.ormlite.dao.Dao;
 import com.j256.ormlite.dao.DaoManager;
 import com.j256.ormlite.jdbc.JdbcConnectionSource;
 import com.j256.ormlite.support.ConnectionSource;
 import com.j256.ormlite.table.TableUtils;
 import java.io.File;
-import java.nio.file.Files;
-import java.nio.file.Paths;
 import java.sql.SQLException;
-import java.util.HashSet;
 import java.util.List;
-import java.util.concurrent.locks.ReentrantLock;
 import org.coinspark.core.CSLogger;
 import org.coinspark.protocol.CoinSparkMessage;
 import org.coinspark.protocol.CoinSparkMessagePart;
@@ -205,7 +200,7 @@ public class CSMessageDatabase {
 		messageDao.createIfNotExists(message);
 		log.info("Message DB: Tx " + TxID + " inserted");            
 		
-		 updateMessageParts(message);
+//		 persistMessageParts(message.getMessageParts());
 
             }
             else
@@ -307,7 +302,7 @@ public class CSMessageDatabase {
 		    log.debug(">>>> mayBeRetrieve returned TRUE");
 		    // TODO: See ormlite docs about a better way? e.g.  account.orders.update(order);
 		    
-		    updateMessageParts(message);
+//		    persistMessageParts(message.getMessageParts());
 
 		    // query for id below will refresh message object
 				    
@@ -326,21 +321,25 @@ public class CSMessageDatabase {
         retrievalInProgress=false;
     }
     
-    public void updateMessageParts(CSMessage message) throws SQLException {
-	HashSet<CSMessagePart> set = message.retrievedMessageParts;
-	if (set != null) {
-	    log.debug(">>>> retrievedMessageParts number = " + set.size());
-	    for (CSMessagePart part : set) {
+    /**
+     * Message parts are only persisted when they are created by DAO
+     * @param parts
+     * @throws SQLException 
+     */
+    public void persistMessageParts(List<CSMessagePart> parts) throws SQLException {
+	if (parts!=null) {
+	    for (CSMessagePart part : parts) {
+		Dao.CreateOrUpdateStatus status = messagePartDao.createOrUpdate(part);
 		log.debug(">>>> Invoke messagePartDao.createOrUpdate() for part:");
+		log.debug(">>>>  partID = " + part.partID);
 		log.debug(">>>>  fileName = " + part.fileName);
 		log.debug(">>>>  contentSize =" + part.contentSize);
-		log.debug(">>>>  partID = " + part.partID);
-
-		Dao.CreateOrUpdateStatus status = messagePartDao.createOrUpdate(part);
 		log.debug(">>> status created? = " + status.isCreated());
 		log.debug(">>> status updated? = " + status.isUpdated());
 		log.debug(">>> status lines changed  = " + status.getNumLinesChanged());
 	    }
 	}
     }
+    
+
 }
