@@ -683,10 +683,10 @@ public class CSMessage {
     }
 
     /**
-     * Save retrieved message parts from servers to our database DAO must commit
-     * changes to DB.
+     * Save retrieved message parts from servers to our database.
+     * DAO will persist to database.
      *
-     * @param MessageParts
+     * @param MessageParts Have already passed messaging hash test so they are good.
      * @return
      */
     private boolean saveMessageParts(CoinSparkMessagePart[] MessageParts) {
@@ -704,9 +704,12 @@ public class CSMessage {
 	for (int i = 0; i < numParts; i++) {
 	    CoinSparkMessagePart c = MessageParts[i];
 	    log.debug(">>>> MESSAGE PART: " + c.mimeType + " , " + c.content.length + " , name=" + c.fileName);
-	    CSMessagePart p = new CSMessagePart(i + 1, c.mimeType, c.fileName, c.content.length, c.content);
+	    CSMessagePart p = new CSMessagePart(i + 1, c.mimeType, c.fileName, c.content.length);
 	    p.message = this; // set foreign reference
 	    parts.add(p);
+	    
+	    // Insert BLOB into blob store.  It has already passed the hash test.
+	    CSMessageDatabase.putIfAbsentBlobForMessagePart(txID, i+1, c.content);
 	}
 	
 	try {

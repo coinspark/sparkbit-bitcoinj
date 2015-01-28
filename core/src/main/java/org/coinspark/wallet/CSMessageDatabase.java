@@ -25,6 +25,7 @@ import com.j256.ormlite.table.TableUtils;
 import java.io.File;
 import java.sql.SQLException;
 import java.util.List;
+import org.apache.commons.io.FilenameUtils;
 import org.coinspark.core.CSLogger;
 import org.coinspark.protocol.CoinSparkMessage;
 import org.coinspark.protocol.CoinSparkMessagePart;
@@ -46,17 +47,25 @@ public class CSMessageDatabase {
     // Set this to true and all messages will enable testnet=true JSON parameter.
     public static boolean testnet3 = false;
     
-    private static final String TESTNET3_PREFIX = "testnet3-";
-    private static final String MESSAGE_DB_SUFFIX = "messages.csdb";
+    // Suffix to add to filename
+    private static final String TESTNET3_FILENAME_SUFFIX = "-testnet3";
+    
+    // Suffix to use for messages folder, appeneded to name of wallet
     private static final String MESSAGE_DIR_SUFFIX = ".csmessages";
-    private static final String MESSAGE_H2_DB_SUFFIX = "messages.h2";
-    private static final String MESSAGE_H2_KVSTORE_SUFFIX = "messages.h2.kvstore";
-    private static final String MESSAGE_TX_DEF_MAP_NAME = "tx_def";
+    
+    private static final String MESSAGE_DATABASE_FILENAME = "messages";
+    
+    private static final String MESSAGE_META_KEYSTORE_FILENAME = "meta";
+    
+    private static final String MESSAGE_BLOB_KEYSTORE_FILENAME = "sparkbit-blobs";
+    
+    private static final String MESSAGE_MVSTORE_FILE_EXTENSION = ".mv.db";
+   
+    private static final String MESSAGE_PART_TO_BLOB_MAP_NAME = "mesagepart_blob";
+    private static final String MESSAGE_TXID_TO_META_MAP_NAME = "txid_meta";
     
     private String fileName;
-    @Deprecated
     private String dirName;
-    private int fileSize;
     private Wallet wallet;
     
     // H2 database
@@ -66,13 +75,46 @@ public class CSMessageDatabase {
     
     private MVStore kvStore;
     private MVMap<String, Object> defMap;
-	    
+    
+    // A H2 MVStore for Blobs
+    private static MVStore blobStore;
+    
+    // A map for message blobs: txid:partid --> BLOB
+    private static MVMap<String, byte[]> blobMap;
+    
+    /**
+     * Initialize the blob map once, to be shared by all CSMessageDatabases
+     * @param path
+     * @return true if blob map exists.
+     */
+    private static synchronized boolean initBlobMap(String path) {
+	if (blobMap != null) {
+	    return true;
+	}
+	
+	blobStore = MVStore.open(path);
+	if (blobStore != null) {
+	    blobMap = blobStore.openMap(MESSAGE_PART_TO_BLOB_MAP_NAME);
+	}
+	return (blobMap != null);
+    }
+    
     public CSMessageDatabase(String FilePrefix,CSLogger CSLog,Wallet ParentWallet)
     {
-        dirName = FilePrefix + MESSAGE_DIR_SUFFIX+File.separator;
-        fileName = dirName + ((CSMessageDatabase.testnet3) ? TESTNET3_PREFIX : "") + MESSAGE_H2_DB_SUFFIX;
+        dirName = FilePrefix + MESSAGE_DIR_SUFFIX + File.separator;
+        fileName = dirName + MESSAGE_DATABASE_FILENAME + ((CSMessageDatabase.testnet3) ? TESTNET3_FILENAME_SUFFIX : ""); // H2 will add .mv.db extension itself
         csLog=CSLog;
         wallet=ParentWallet;
+	
+	
+	String folder = FilenameUtils.getFullPath(FilePrefix);
+	String name = MESSAGE_BLOB_KEYSTORE_FILENAME + ((CSMessageDatabase.testnet3) ? TESTNET3_FILENAME_SUFFIX : "") + MESSAGE_MVSTORE_FILE_EXTENSION;
+	String blobPath = FilenameUtils.concat(folder, name);
+	boolean b = CSMessageDatabase.initBlobMap(blobPath);
+	if (!b) {
+	    log.error("Message DB: Could not create BLOB storage map at: " + blobPath);
+	    return;
+	}
 	
 	File dir = new File(dirName);
 	if (!dir.exists()) {
@@ -86,13 +128,13 @@ public class CSMessageDatabase {
 	}
 	
 	
-	String kvStoreFileName = dirName + ((CSMessageDatabase.testnet3) ? TESTNET3_PREFIX : "") + MESSAGE_H2_KVSTORE_SUFFIX;
+	String kvStoreFileName = dirName + MESSAGE_META_KEYSTORE_FILENAME + ((CSMessageDatabase.testnet3) ? TESTNET3_FILENAME_SUFFIX : "") + MESSAGE_MVSTORE_FILE_EXTENSION;
 	kvStore = MVStore.open(kvStoreFileName);
 	if (kvStore != null) {
-	    defMap = kvStore.openMap(MESSAGE_TX_DEF_MAP_NAME);
+	    defMap = kvStore.openMap(MESSAGE_TXID_TO_META_MAP_NAME);
 	}
 	
-	// FIXME: This database URL could be passed in via constructor
+	// TODO?: This database URL could be passed in via constructor
 	String databaseUrl = "jdbc:h2:file:" + fileName + ";USER=sa;PASSWORD=sa;AUTO_SERVER=TRUE";
 
 	try {
@@ -111,6 +153,13 @@ public class CSMessageDatabase {
     // FIXME: make sure we free resources
     public void shutdown() {
 	connectionSource.closeQuietly();
+    }
+    
+    public static synchronized void shutdownBlobStore() {
+	if (blobStore != null) {
+	    blobStore.commit();
+	    blobStore.close();
+	}
     }
     
     // FIXME: we want to have a connection pool for a central databaes
@@ -289,6 +338,7 @@ public class CSMessageDatabase {
         // query for all items in the database
 	try {
 	    // TODO: Query where not SELF or VALID state, order etc...
+	    //FIXME: messageDao was NULL for tombrady wallet.
 	    List<CSMessage> messages = messageDao.queryForAll();
 	    // NOTE: could also be CSMessage message : messageDao (which can act as iterator)
 	    for (CSMessage message : messages) {
@@ -345,5 +395,23 @@ public class CSMessageDatabase {
 	}
     }
     
+    public static byte[] getBlobForMessagePart(String txid, int partID) {
+	return blobMap.get(txid + ":" + partID);
+    }
 
+    public static void putIfAbsentBlobForMessagePart(String txid, int partID, byte[] blob) {
+	blobMap.put(txid + ":" + partID, blob);
+	blobStore.commit();
+    }
+
+    public static MVMap getBlobMap() {
+	return blobMap;
+    }
+//    public void putBlobForMessageParts(List<CSMessagePart> parts)  {
+//	if (parts!=null) {
+//	    for (CSMessagePart part : parts) {
+//		part.getClass()
+//	    }	    
+//	}
+//    }
 }

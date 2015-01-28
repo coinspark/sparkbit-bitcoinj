@@ -61,23 +61,15 @@ import java.util.concurrent.locks.ReentrantLock;
 
 import static com.google.bitcoin.core.Utils.bitcoinValueToFriendlyString;
 import static com.google.bitcoin.core.Utils.bitcoinValueToPlainString;
-import com.google.bitcoin.script.ScriptOpCodes;
 import static com.google.common.base.Preconditions.*;
 import com.sun.org.apache.xml.internal.security.utils.Base64;
-import java.util.logging.FileHandler;
-import java.util.logging.Handler;
-import java.util.logging.Level;
 import org.coinspark.core.CSExceptions;
 import org.coinspark.core.CSLogger;
-import org.coinspark.core.CSPDFParser;
 import org.coinspark.core.CSUtils;
 import org.coinspark.protocol.CoinSparkBase;
-import org.coinspark.protocol.CoinSparkDomainPath;
-import org.coinspark.protocol.CoinSparkExceptions;
 import org.coinspark.protocol.CoinSparkIORange;
 import org.coinspark.protocol.CoinSparkMessage;
 import org.coinspark.protocol.CoinSparkMessagePart;
-import org.coinspark.protocol.CoinSparkPaymentRef;
 import org.coinspark.protocol.CoinSparkTransfer;
 import org.coinspark.protocol.CoinSparkTransferList;
 import org.coinspark.wallet.CSAsset;
@@ -94,7 +86,7 @@ import org.coinspark.wallet.CSEventBus;
 import org.coinspark.wallet.CSNonce;
 import org.coinspark.wallet.CSMessagePart;
 
-import org.jboss.netty.logging.Log4JLoggerFactory;
+import org.h2.mvstore.MVMap;
 
 // To do list:
 //
@@ -6191,6 +6183,13 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
         
         
         s+="\n";
+	
+	MVMap blobMap = CSMessageDatabase.getBlobMap();
+	List<String> keys = blobMap.keyList();
+	for (String key : keys) {
+	    s+="BLOB MAP KEY FOUND: " + key + "\n";
+	}
+        s+="\n";
         
         s+="Unspent TxOuts\n\n";
         Map<CSTransactionOutput,Map<Integer,CSBalance>>  mapTxOuts=CS.getAllAssetTxOuts();
@@ -6215,6 +6214,20 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
                     for(CSMessagePart messagePart : message.getMessageParts())
                     {
                         s+=" Message: fileName:" + messagePart.fileName + ", Size: " + messagePart.contentSize + "\n";
+			// Does data exist in blob store?
+			byte[] blob = CSMessageDatabase.getBlobForMessagePart(entryTxOut.getKey().getTxID().toString(), messagePart.partID);
+			if (blob != null) {
+			    s +="  Blob data found: " + messagePart.mimeType + "\n";
+			    if (messagePart.mimeType.equals("text/plain")) {
+				try {
+				String msg = new String(blob, "UTF-8");
+				s+=  "Blob message: " + msg + "\n";
+				} catch (Exception e) {
+				    s += e.toString() + "\n";
+				}
+			    }
+			}
+
                     }
                 }
 		

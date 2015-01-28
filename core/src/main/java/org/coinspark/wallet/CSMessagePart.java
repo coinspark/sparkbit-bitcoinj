@@ -54,15 +54,14 @@ public class CSMessagePart {
     public int contentSize;
 
     // columnDefinition overrides canBeNull=false so must explicitly specify NOT NULL
-    @DatabaseField(columnName = CONTENT_FIELD_NAME, columnDefinition = "LONGBLOB not null", dataType=DataType.BYTE_ARRAY)
-    public byte[] content;
+//    @DatabaseField(columnName = CONTENT_FIELD_NAME, columnDefinition = "LONGBLOB not null", dataType=DataType.BYTE_ARRAY)
+//    public byte[] content;
 
-    CSMessagePart(int partID, String MimeType, String FileName, int ContentSize, byte[] Content) {
+    CSMessagePart(int partID, String MimeType, String FileName, int ContentSize) {
 	this.partID = partID;
 	mimeType = MimeType;
 	fileName = FileName;
 	contentSize = ContentSize;
-	content = Content;
     }
 
     CSMessagePart() {
