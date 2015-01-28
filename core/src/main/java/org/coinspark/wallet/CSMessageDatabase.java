@@ -266,7 +266,7 @@ public class CSMessageDatabase {
 	CSMessage msg = null;
 	try {
 	     msg = messageDao.queryForId(txid);
-	     msg.init(this);
+	     if (msg!=null) msg.init(this);
 	} catch (SQLException e) {
 	    e.printStackTrace();
 	}
