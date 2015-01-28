@@ -94,13 +94,13 @@ public class CSMessage {
      */
     public class CSMessageParams {
 
-	public boolean isTestnet() {
-	    return testnet;
-	}
-
-	public void setTestnet(boolean testnet) {
-	    this.testnet = testnet;
-	}
+//	public boolean isTestnet() {
+//	    return testnet;
+//	}
+//
+//	public void setTestnet(boolean testnet) {
+//	    this.testnet = testnet;
+//	}
 
 	public String getSender() {
 	    return sender;
@@ -151,7 +151,7 @@ public class CSMessage {
 	}
 	
 	// FIXME: testnet is temporary fudge
-	public boolean testnet = true;
+//	public boolean testnet = true;
 
 	public String sender = null;
 	public String salt = null;
@@ -937,7 +937,7 @@ public class CSMessage {
 
     private class JRequestPreCreateMessagePart {
 
-	public boolean testnet = true;
+	public boolean testnet = CSMessageDatabase.testnet3;
 
 	public String mimetype;
 	public String filename;
@@ -952,7 +952,7 @@ public class CSMessage {
 
     private class JRequestPreCreateParams {
 
-	public boolean testnet = true;
+	public boolean testnet = CSMessageDatabase.testnet3;
 
 	public String sender;
 	public boolean ispublic;
@@ -1017,7 +1017,7 @@ public class CSMessage {
 
     private class JRequestCreateMessagePart {
 
-	public boolean testnet = true;
+	public boolean testnet = CSMessageDatabase.testnet3;
 
 	public String mimetype;
 	public String filename;
@@ -1032,7 +1032,7 @@ public class CSMessage {
 
     private class JRequestCreateParams {
 
-	public boolean testnet = true;
+	public boolean testnet = CSMessageDatabase.testnet3;
 
 	public String sender;
 	public String nonce;
@@ -1093,7 +1093,7 @@ public class CSMessage {
 
     private class JRequestPreRetrieveParams {
 
-	public boolean testnet = true;
+	public boolean testnet = CSMessageDatabase.testnet3;
 
 	public String txid;
 	public String recipient;
@@ -1157,7 +1157,7 @@ public class CSMessage {
 
     private class JRequestRetrieveParams {
 
-	public boolean testnet = true;
+	public boolean testnet = CSMessageDatabase.testnet3;
 
 	public String txid;
 	public String recipient;

@@ -43,6 +43,10 @@ public class CSMessageDatabase {
     
 //    protected final ReentrantLock lock = Threading.lock("assetdb");
     
+    // Set this to true and all messages will enable testnet=true JSON parameter.
+    public static boolean testnet3 = false;
+    
+    private static final String TESTNET3_PREFIX = "testnet3-";
     private static final String MESSAGE_DB_SUFFIX = "messages.csdb";
     private static final String MESSAGE_DIR_SUFFIX = ".csmessages";
     private static final String MESSAGE_H2_DB_SUFFIX = "messages.h2";
@@ -66,7 +70,7 @@ public class CSMessageDatabase {
     public CSMessageDatabase(String FilePrefix,CSLogger CSLog,Wallet ParentWallet)
     {
         dirName = FilePrefix + MESSAGE_DIR_SUFFIX+File.separator;
-        fileName = dirName + MESSAGE_H2_DB_SUFFIX;
+        fileName = dirName + ((CSMessageDatabase.testnet3) ? TESTNET3_PREFIX : "") + MESSAGE_H2_DB_SUFFIX;
         csLog=CSLog;
         wallet=ParentWallet;
 	
@@ -82,7 +86,7 @@ public class CSMessageDatabase {
 	}
 	
 	
-	String kvStoreFileName = dirName + MESSAGE_H2_KVSTORE_SUFFIX;
+	String kvStoreFileName = dirName + ((CSMessageDatabase.testnet3) ? TESTNET3_PREFIX : "") + MESSAGE_H2_KVSTORE_SUFFIX;
 	kvStore = MVStore.open(kvStoreFileName);
 	if (kvStore != null) {
 	    defMap = kvStore.openMap(MESSAGE_TX_DEF_MAP_NAME);
