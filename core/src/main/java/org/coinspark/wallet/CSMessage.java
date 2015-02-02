@@ -44,6 +44,7 @@ import com.j256.ormlite.table.DatabaseTable;
 import com.sun.org.apache.xerces.internal.impl.dv.util.Base64;
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
@@ -310,7 +311,16 @@ public class CSMessage {
 	}
 	return null;
     }
-
+    
+    public List<CSMessagePart> getMessagePartsSortedByPartID() {
+	if (this.messageParts != null) {
+	    List sorted = new ArrayList(this.messageParts);
+	    Collections.sort(sorted);
+	    return sorted;
+	}
+	return null;
+    }
+    
     public String getServerURL() {
 	return meta.getServerURL();
     }

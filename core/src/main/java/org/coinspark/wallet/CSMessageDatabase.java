@@ -20,6 +20,8 @@ import com.google.bitcoin.core.Wallet;
 import com.j256.ormlite.dao.Dao;
 import com.j256.ormlite.dao.DaoManager;
 import com.j256.ormlite.jdbc.JdbcConnectionSource;
+import com.j256.ormlite.stmt.PreparedQuery;
+import com.j256.ormlite.stmt.QueryBuilder;
 import com.j256.ormlite.support.ConnectionSource;
 import com.j256.ormlite.table.TableUtils;
 import java.io.File;
@@ -72,7 +74,7 @@ public class CSMessageDatabase {
     ConnectionSource connectionSource;
     Dao<CSMessage, String> messageDao;
     Dao<CSMessagePart, Long> messagePartDao;
-    
+	    
     private MVStore kvStore;
     private MVMap<String, Object> defMap;
     
@@ -179,6 +181,37 @@ public class CSMessageDatabase {
 	return defMap;
     }
 
+    
+    public CSMessagePart getMessagePart(String txid, int partID) {
+	QueryBuilder<CSMessagePart, Long> queryBuilder = messagePartDao.queryBuilder();
+	try {
+	    queryBuilder.where().eq(CSMessagePart.MESSAGE_ID_FIELD_NAME, txid).and().eq(CSMessagePart.PART_ID_FIELD_NAME, partID);
+	    PreparedQuery<CSMessagePart> pq = queryBuilder.prepare();
+	    List<CSMessagePart> list = messagePartDao.query(pq);
+	    if (list.size()==1) {
+		return list.get(0);
+	    }
+	} catch (SQLException e) {
+	    e.printStackTrace();
+	}
+	return null;
+    }
+    
+//    public List<CSMessagePart> getMessagePartsOrdered(String txid) {
+//	QueryBuilder<CSMessagePart, Long> queryBuilder = messagePartDao.queryBuilder();
+//	try {
+//	    queryBuilder.where().eq(CSMessagePart.MESSAGE_ID_FIELD_NAME, txid);
+//	    queryBuilder.orderBy(CSMessagePart.PART_ID_FIELD_NAME, true);
+//	    PreparedQuery<CSMessagePart> pq = queryBuilder.prepare();
+//	    List<CSMessagePart> list = messagePartDao.query(pq);
+//	    return list;
+//	} catch (SQLException e) {
+//	    e.printStackTrace();
+//	}
+//	return null;
+//    }   
+    
+    
     
     public boolean insertReceivedMessage(String TxID,int countOutputs,CoinSparkPaymentRef PaymentRef,CoinSparkMessage Message,String [] Addresses)
     {
