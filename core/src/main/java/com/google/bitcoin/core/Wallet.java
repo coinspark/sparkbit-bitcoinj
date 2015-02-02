@@ -1886,6 +1886,9 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
 	    return paymentRef;
 	}
         
+	public CoinSparkMessagePart[] getMessageParts() {
+	    return messageParts;
+	}
         
         
         /**
