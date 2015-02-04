@@ -154,7 +154,13 @@ public class CSMessageDatabase {
     
     // FIXME: make sure we free resources
     public void shutdown() {
-	connectionSource.closeQuietly();
+	if (connectionSource != null) {
+	    connectionSource.closeQuietly();
+	}
+	if (kvStore != null) {
+	    kvStore.commit();
+	    kvStore.close();
+	}
     }
     
     public static synchronized void shutdownBlobStore() {
@@ -360,6 +366,9 @@ public class CSMessageDatabase {
     
     public void retrieveMessages()
     {
+	if (!getConnectionSource().isOpen()) {
+	    return;
+	}
 		log.debug(">>>> retrieveMessages() for wallet " + wallet.getDescription());
 
         if(retrievalInProgress){
