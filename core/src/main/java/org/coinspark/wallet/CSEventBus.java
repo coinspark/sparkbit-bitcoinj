@@ -58,6 +58,10 @@ public enum CSEventBus {
     public void registerAsyncSubscriber(Object o) {
 	asyncEventBus.register(o);
     }
+    
+    public void unsubscribe(Object o) {
+	asyncEventBus.unregister(o);
+    }
 
 //    public void post(Object o) {
 //	eventBus.post(o);
