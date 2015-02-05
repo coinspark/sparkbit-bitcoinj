@@ -2385,34 +2385,35 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
 // After inputs are signed we can send messahe ot delivery server
         if(sendRequest.messageToCreate != null)
         {
-            if(sendRequest.messageParts != null)
-            {
-                CS.log.info("Sending message for tx "+ sendRequest.tx.getHashAsString() + " to delivery server " + sendRequest.messageToCreate.getServerURL());
-                sendRequest.messageToCreate.setTxID(sendRequest.tx.getHashAsString());
+	    try {
+		CSEventBus.INSTANCE.postAsyncEvent(CSEventType.MESSAGE_UPLOAD_STARTED, sendRequest.hashCode());
+		if (sendRequest.messageParts != null) {
+		    CS.log.info("Sending message for tx " + sendRequest.tx.getHashAsString() + " to delivery server " + sendRequest.messageToCreate.getServerURL());
+		    sendRequest.messageToCreate.setTxID(sendRequest.tx.getHashAsString());
 
-                if(!sendRequest.messageToCreate.create(this, sendRequest.messageParts, sendRequest.createNonce))
-                {
-                    CS.log.info("Cannot create message for tx "+ sendRequest.tx.getHashAsString() + " on delivery server " + sendRequest.messageToCreate.getServerURL());
-                    throw new CSExceptions.CannotEncode("Cannot send message to delivery server");
-                }
-            }
+		    if (!sendRequest.messageToCreate.create(this, sendRequest.messageParts, sendRequest.createNonce)) {
+			CS.log.info("Cannot create message for tx " + sendRequest.tx.getHashAsString() + " on delivery server " + sendRequest.messageToCreate.getServerURL());
+			throw new CSExceptions.CannotEncode("Cannot send message to delivery server");
+		    }
+		}
 
-            if(!CS.messageDB.insertSentMessage(sendRequest.tx.getHashAsString(), 
-                                           sendRequest.tx.getOutputs().size(), 
-                                           sendRequest.messageToCreate.getPaymentRef(),
-                                           sendRequest.message, 
-                                           sendRequest.messageParts,
-                                           sendRequest.messageToCreate.getMessageParams()))
-            {
-                CS.log.info("Cannot store message for tx "+ sendRequest.tx.getHashAsString());
-                throw new CSExceptions.CannotEncode("Cannot store message in the database");
-            }
+		if (!CS.messageDB.insertSentMessage(sendRequest.tx.getHashAsString(),
+			sendRequest.tx.getOutputs().size(),
+			sendRequest.messageToCreate.getPaymentRef(),
+			sendRequest.message,
+			sendRequest.messageParts,
+			sendRequest.messageToCreate.getMessageParams())) {
+		    CS.log.info("Cannot store message for tx " + sendRequest.tx.getHashAsString());
+		    throw new CSExceptions.CannotEncode("Cannot store message in the database");
+		}
 
+		if (sendRequest.messageParts != null) {
+		    CS.log.info("Message for tx " + sendRequest.tx.getHashAsString() + " was successfully sent via delivery server " + sendRequest.messageToCreate.getServerURL());
+		}
 
-            if(sendRequest.messageParts != null)
-            {
-                CS.log.info("Message for tx "+ sendRequest.tx.getHashAsString() + " was successfully sent via delivery server " + sendRequest.messageToCreate.getServerURL());
-            }
+	    } finally {
+		CSEventBus.INSTANCE.postAsyncEvent(CSEventType.MESSAGE_UPLOAD_ENDED, sendRequest.hashCode());
+	    }
         }
 /* CSPK-mike END */    
     }
