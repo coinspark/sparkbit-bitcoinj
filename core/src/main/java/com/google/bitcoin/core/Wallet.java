@@ -4841,7 +4841,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
             return iRange;        
         }
 
-        private boolean prepareMessage(SendRequest req)
+        private boolean prepareMessage(SendRequest req) throws CSExceptions.CannotEncode
         {
             if(req.messageParts == null)
             {
@@ -4929,6 +4929,9 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
             
             req.deliveryServers=CSUtils.getDeliveryServersArray(req.deliveryServers);
             
+	    StringBuilder sb = new StringBuilder(); // record server errors
+	    
+	    
             for(String serverURL : req.deliveryServers)
             {
                 if(req.createNonce.error != CSUtils.CSServerError.NOERROR)
@@ -4938,6 +4941,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
                     if(req.createNonce.error != CSUtils.CSServerError.NOERROR)
                     {
                         CS.log.info("Server " + serverURL + ": " + req.createNonce.error.getCode() + " - " + req.createNonce.errorMessage);
+			sb.append("Server " + serverURL + ": " + req.createNonce.error.getCode() + " - " + req.createNonce.errorMessage + "\n");
                     }
                     else
                     {
@@ -4945,6 +4949,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
                         if(!CSUtils.setDeliveryServer(req.messageToCreate.getServerURL(), req.message))
                         {
                             CS.log.info("Cannot parse server URL: " + req.messageToCreate.getServerURL());
+			    sb.append("Cannot parse server URL: " + req.messageToCreate.getServerURL() + "\n");
                         }
                         req.message.setIsPublic(false);
                         req.message.addOutputs(new CoinSparkIORange(0, 1)); 
@@ -4962,6 +4967,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
                             req.message=null;
                             req.createNonce.error=CSUtils.CSServerError.METADATA_ENCODE_ERROR;
                             CS.log.info("Cannot encode metadata for server " + req.messageToCreate.getServerURL());
+			    sb.append("Cannot encode metadata for server " + req.messageToCreate.getServerURL() + "\n");
                         }
                     }            
                 }
@@ -4970,7 +4976,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
             if(req.createNonce.error != CSUtils.CSServerError.NOERROR)
             {
                 CS.log.info("All delivery servers refused to create the message");
-                return false;
+		throw new CSExceptions.CannotEncode("All delivery servers refused to create the message\n\n" + sb.toString());
             }            
             
 
@@ -4986,7 +4992,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
                     else
                     {
                         log.warning("Cannot encode message metadata");
-                        return false;                       
+                        throw new CSExceptions.CannotEncode("Cannot append message metadata");
                     }
                 }
                 else
@@ -4997,7 +5003,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
             else
             {
                 log.warning("Cannot encode message metadata");
-                return false;
+		throw new CSExceptions.CannotEncode("Cannot encode message metadata");
             }
 
             log.info("Message metadata was successfully created.");
