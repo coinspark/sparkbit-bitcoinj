@@ -50,6 +50,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.List;
 import org.apache.commons.beanutils.BeanUtils;
+import org.coinspark.core.CSExceptions;
 import org.coinspark.core.CSUtils;
 import org.coinspark.protocol.CoinSparkMessage;
 import org.coinspark.protocol.CoinSparkMessagePart;
@@ -1058,9 +1059,12 @@ public class CSMessage {
 	public JRequestCreateMessagePart[] message;
     }
 
-    public boolean create(Wallet wallet, CoinSparkMessagePart[] MessageParts, CSNonce Nonce) {
+    public boolean create(Wallet wallet, CoinSparkMessagePart[] MessageParts, CSNonce Nonce) throws CSExceptions.CannotEncode {
 	if (Nonce.error != CSUtils.CSServerError.NOERROR) {
-	    return false;
+	    String s = Nonce.errorMessage;
+	    s = s.replaceAll("^(\\w+\\.)+\\w+\\s", "");  // strip exception class name
+	    throw new CSExceptions.CannotEncode(s + " (Error code " + Nonce.error.getCode() + ")");
+//	    return false;
 	}
 
 	JRequestCreateParams params = new JRequestCreateParams();
@@ -1086,7 +1090,10 @@ public class CSMessage {
 	Nonce.error = response.error;
 	if (Nonce.error != CSUtils.CSServerError.NOERROR) {
 	    Nonce.errorMessage = response.errorMessage;
-	    return false;
+	    String s = Nonce.errorMessage;
+	    s = s.replaceAll("^(\\w+\\.)+\\w+\\s", "");  // strip exception class name
+	    throw new CSExceptions.CannotEncode(s + " (Error code " + Nonce.error.getCode() + ")");
+	    //return false;
 	}
 
 	if (Nonce.error == CSUtils.CSServerError.NOERROR) {
@@ -1101,6 +1108,12 @@ public class CSMessage {
 	    }
 	}
 
+	if (Nonce.error != CSUtils.CSServerError.NOERROR) {
+	    String s = Nonce.errorMessage;
+	    s = s.replaceAll("^(\\w+\\.)+\\w+\\s", "");  // strip exception class name
+	    throw new CSExceptions.CannotEncode(s + " (Error code " + Nonce.error.getCode() + ")");
+	}
+	
 	return (Nonce.error == CSUtils.CSServerError.NOERROR);
     }
 

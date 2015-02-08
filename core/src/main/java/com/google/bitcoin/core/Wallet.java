@@ -2391,9 +2391,14 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
 		    CS.log.info("Sending message for tx " + sendRequest.tx.getHashAsString() + " to delivery server " + sendRequest.messageToCreate.getServerURL());
 		    sendRequest.messageToCreate.setTxID(sendRequest.tx.getHashAsString());
 
-		    if (!sendRequest.messageToCreate.create(this, sendRequest.messageParts, sendRequest.createNonce)) {
+		    try {
+			if (!sendRequest.messageToCreate.create(this, sendRequest.messageParts, sendRequest.createNonce)) {
+			    throw new CSExceptions.CannotEncode("Cannot send message to delivery server");
+			}	
+		    } catch (CSExceptions.CannotEncode e) {
+			// Catch error if create() throws an exception, or result was false
 			CS.log.info("Cannot create message for tx " + sendRequest.tx.getHashAsString() + " on delivery server " + sendRequest.messageToCreate.getServerURL());
-			throw new CSExceptions.CannotEncode("Cannot send message to delivery server");
+			throw e;
 		    }
 		}
 
