@@ -58,6 +58,7 @@ import org.coinspark.protocol.CoinSparkPaymentRef;
 import org.h2.mvstore.MVMap;
 import org.slf4j.LoggerFactory;
 import org.spongycastle.crypto.params.KeyParameter;
+import org.apache.commons.lang3.tuple.*;
 
 /**
  * CSMessage is persisted via ORMLite to a database.
@@ -1191,9 +1192,16 @@ public class CSMessage {
 	public String signature;
     }
 
-    private boolean retrieve(Wallet wallet, String acceptedAddress, CSNonce Nonce) {
+    /**
+     * Try to retrieve message
+     * @param wallet
+     * @param acceptedAddress
+     * @param Nonce
+     * @return Tuple of (boolean update, error code, error msg)
+     */
+    private ImmutableTriple<Boolean, CSUtils.CSServerError, String> retrieve(Wallet wallet, String acceptedAddress, CSNonce Nonce) {
 	if (Nonce.error != CSUtils.CSServerError.NOERROR) {
-	    return false;
+	    return new ImmutableTriple<Boolean, CSUtils.CSServerError, String>(false, Nonce.error, "Error retrieving message");
 	}
 
 	JRequestRetrieveParams params = new JRequestRetrieveParams();
@@ -1204,14 +1212,14 @@ public class CSMessage {
 	params.signature = getSignature(wallet, acceptedAddress, Nonce);
 
 	if (Nonce.error != CSUtils.CSServerError.NOERROR) {
-	    return false;
+	    return new ImmutableTriple<Boolean, CSUtils.CSServerError, String>(false, Nonce.error, "Error retrieving message");
 	}
 
 	JResponse response = jsonQuery(new JRequest(params));
 
 	Nonce.error = response.error;
 	if (Nonce.error != CSUtils.CSServerError.NOERROR) {
-	    return false;
+	    return new ImmutableTriple<Boolean, CSUtils.CSServerError, String>(false, Nonce.error, "Error retrieving message");
 	}
 
 	if (Nonce.error == CSUtils.CSServerError.NOERROR) {
@@ -1277,12 +1285,13 @@ public class CSMessage {
 	// Message received, so save message parts, and save the metadata
 	if (Nonce.error == CSUtils.CSServerError.NOERROR) {
 	    if (!saveMessageParts(receivedParts)) {
-		return true;                                                    // Internal error - no change in state
+		return new ImmutableTriple<Boolean, CSUtils.CSServerError, String>(true, CSUtils.CSServerError.NOERROR, null);
+		// Internal error - no change in state
 	    }
 
 	    if (!saveMetadata(txID, 0, null)) // Internal error - no change in state
 	    {
-		return true;
+		return new ImmutableTriple<Boolean, CSUtils.CSServerError, String>(true, CSUtils.CSServerError.NOERROR, null);
 	    }
 	}
 
@@ -1304,25 +1313,31 @@ public class CSMessage {
 		break;
 	    case TX_MESSAGE_UNKNOWN:
 		messageRetrievalState = CSMessageState.NOT_FOUND;
-		return true;
+		break; //return true;
 	    case TX_MESSAGE_PENDING:
 		messageRetrievalState = CSMessageState.PENDING;
-		return true;
+		break; //return true;
 	    case TX_MESSAGE_EXPIRED:
 		messageRetrievalState = CSMessageState.EXPIRED;
-		return true;
+		break; //return true;
 	    case NONCE_NOT_FOUND:                                               // Internal error - no change in state
 	    case SIGNATURE_INCORRECT:
-		return true;
+		break; //return true;
 	    default:
 		messageRetrievalState = CSMessageState.SERVER_ERROR;
-		return true;
+		//return true;
 	}
 
-	return true;
-    }
 
-    private boolean retrieve(Wallet wallet) {
+	if (Nonce.error != CSUtils.CSServerError.NOERROR) {
+	    return new ImmutableTriple<Boolean, CSUtils.CSServerError, String>(true, Nonce.error, "Error retrieving message");
+	}	
+	
+	return new ImmutableTriple<Boolean, CSUtils.CSServerError, String>(true, CSUtils.CSServerError.NOERROR, null);
+	}
+
+    
+    private ImmutableTriple<Boolean, CSUtils.CSServerError, String> retrieve(Wallet wallet) {
 	String acceptedAddress = null;
 	CSNonce nonce = null;
 	boolean suspended = false;
@@ -1371,15 +1386,16 @@ public class CSMessage {
 	if (acceptedAddress == null) {
 	    if (suspended) {
 		messageRetrievalState = CSMessageState.ADDRESSES_SUSPENDED;
+		return new ImmutableTriple<Boolean, CSUtils.CSServerError, String>(true, CSUtils.CSServerError.RECIPIENT_IS_SUSPENDED, "Error retrieving message");
 	    } else {
 		messageRetrievalState = CSMessageState.ADDRESSES_NOT_ACCEPTED;
+		return new ImmutableTriple<Boolean, CSUtils.CSServerError, String>(true, CSUtils.CSServerError.RECIPIENT_NOT_ACCEPTED, "Error retrieving message");
 	    }
-	    return true;
 	}
 
 	if (nonce == null) {
 	    messageRetrievalState = CSMessageState.ADDRESSES_NOT_ACCEPTED;
-	    return true;
+	    return new ImmutableTriple<Boolean, CSUtils.CSServerError, String>(true, CSUtils.CSServerError.NONCE_NOT_FOUND, "Error retrieving message");
 	}
 
 	switch (nonce.error) {
@@ -1387,16 +1403,20 @@ public class CSMessage {
 		break;
 	    case TX_MESSAGE_UNKNOWN:
 		messageRetrievalState = CSMessageState.NOT_FOUND;
-		return true;
+		break; //return true;
 	    case TX_MESSAGE_PENDING:
 		messageRetrievalState = CSMessageState.PENDING;
-		return true;
+		break; //return true;
 	    case TX_MESSAGE_EXPIRED:
 		messageRetrievalState = CSMessageState.EXPIRED;
-		return true;
+		break; //return true;
 	    default:
 		messageRetrievalState = CSMessageState.SERVER_ERROR;
-		return true;
+		break; //return true;
+	}
+	
+	if (nonce.error != CSUtils.CSServerError.NOERROR) {
+	    return new ImmutableTriple<Boolean, CSUtils.CSServerError, String>(true, nonce.error, "Error retrieving message");
 	}
 
 	return retrieve(wallet, acceptedAddress, nonce);
@@ -1410,7 +1430,12 @@ public class CSMessage {
 	if (nextRetrievalInterval() == 0) {
 	    CSEventBus.INSTANCE.postAsyncEvent(CSEventType.MESSAGE_RETRIEVAL_STARTED, txID);
 	    load();
-	    updateRequired |= retrieve(wallet);
+	    
+	    ImmutableTriple<Boolean, CSUtils.CSServerError, String> triplet = retrieve(wallet);
+	    this.db.putServerError(txID, triplet.getMiddle());
+	    
+	    updateRequired |= triplet.getLeft();
+	    //updateRequired |= retrieve(wallet);
 	}
 
 	updateRequired |= (messageState != messageRetrievalState);

@@ -29,6 +29,7 @@ import java.sql.SQLException;
 import java.util.List;
 import org.apache.commons.io.FilenameUtils;
 import org.coinspark.core.CSLogger;
+import org.coinspark.core.CSUtils;
 import org.coinspark.protocol.CoinSparkMessage;
 import org.coinspark.protocol.CoinSparkMessagePart;
 import org.coinspark.protocol.CoinSparkPaymentRef;
@@ -65,6 +66,7 @@ public class CSMessageDatabase {
    
     private static final String MESSAGE_PART_TO_BLOB_MAP_NAME = "mesagepart_blob";
     private static final String MESSAGE_TXID_TO_META_MAP_NAME = "txid_meta";
+    private static final String MESSAGE_TXID_TO_ERROR_MAP_NAME = "txid_error";
     
     private String fileName;
     private String dirName;
@@ -77,6 +79,7 @@ public class CSMessageDatabase {
 	    
     private MVStore kvStore;
     private MVMap<String, Object> defMap;
+    private MVMap<String, Integer> errorMap;
     
     // A H2 MVStore for Blobs
     private static MVStore blobStore;
@@ -134,6 +137,7 @@ public class CSMessageDatabase {
 	kvStore = MVStore.open(kvStoreFileName);
 	if (kvStore != null) {
 	    defMap = kvStore.openMap(MESSAGE_TXID_TO_META_MAP_NAME);
+	    errorMap = kvStore.openMap(MESSAGE_TXID_TO_ERROR_MAP_NAME);
 	}
 	
 	// TODO?: This database URL could be passed in via constructor
@@ -185,6 +189,21 @@ public class CSMessageDatabase {
 
     public MVMap getDefMap() {
 	return defMap;
+    }
+    
+    public MVMap getErrorMap() {
+	return errorMap;
+    }
+    
+    public Integer getServerErrorCode(String txid) {
+	if (errorMap==null || txid==null) return null;
+	Integer result = errorMap.get(txid);
+	return result;
+    }
+    
+    public void putServerError(String txid, CSUtils.CSServerError errorCode) {
+	errorMap.put(txid, errorCode.getCode());
+	kvStore.commit();
     }
 
     
