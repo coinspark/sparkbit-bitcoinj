@@ -398,9 +398,13 @@ public class CSMessageDatabase {
 
         // query for all items in the database
 	try {
-	    // TODO: Query where not SELF or VALID state, order etc...
-	    //FIXME: messageDao was NULL for tombrady wallet.
-	    List<CSMessage> messages = messageDao.queryForAll();
+	    
+	    QueryBuilder<CSMessage, String> queryBuilder = messageDao.queryBuilder();
+	    queryBuilder.where().ne(CSMessage.MESSAGE_STATE_FIELD_NAME, CSMessage.CSMessageState.PAYMENTREF_ONLY)
+		    .and().ne(CSMessage.MESSAGE_STATE_FIELD_NAME, CSMessage.CSMessageState.SELF)
+		    .and().ne(CSMessage.MESSAGE_STATE_FIELD_NAME, CSMessage.CSMessageState.VALID);
+	    PreparedQuery<CSMessage> pq = queryBuilder.prepare();
+	    List<CSMessage> messages = messageDao.query(pq); //queryForAll();
 	    // NOTE: could also be CSMessage message : messageDao (which can act as iterator)
 	    for (CSMessage message : messages) {
 		
@@ -409,6 +413,14 @@ public class CSMessageDatabase {
 		// Initialise message with MessageDatabase
 		// Other things may need to be set e.g. CSMessageParams bean, or CSMessageMeta bean.
 		message.init(this);
+		
+		// Ignore messages we don't need to retrieve, here, or via query
+		/*
+		if (message.getMessageState()==CSMessage.CSMessageState.PAYMENTREF_ONLY || message.getMessageState()==CSMessage.CSMessageState.SELF || message.getMessageState()==CSMessage.CSMessageState.VALID) {
+		    continue;
+		}
+		*/
+		
 		
 		log.debug(">>>> Invoke mayBeRetrieve for " + message.getTxID());
 		
