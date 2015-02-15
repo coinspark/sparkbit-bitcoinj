@@ -4932,12 +4932,12 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
             
             byte [] metadata=null;
             
-            req.deliveryServers=CSUtils.getDeliveryServersArray(req.deliveryServers);
+            String[] randomServers=CSUtils.getRandomizedHTTPDeliveryServers(req.deliveryServers);
             
 	    StringBuilder sb = new StringBuilder(); // record server errors
 	    
 	    
-            for(String serverURL : req.deliveryServers)
+            for(String serverURL : randomServers)
             {
                 if(req.createNonce.error != CSUtils.CSServerError.NOERROR)
                 {
@@ -4951,10 +4951,10 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
                     else
                     {
                         req.message=new CoinSparkMessage();
-                        if(!CSUtils.setDeliveryServer(req.messageToCreate.getServerURL(), req.message))
+                        if(!CSUtils.setDeliveryServer(req.messageToCreate.getActualServerURL(), req.message))
                         {
-                            CS.log.info("Cannot parse server URL: " + req.messageToCreate.getServerURL());
-			    sb.append("Cannot parse server URL: " + req.messageToCreate.getServerURL() + "\n");
+                            CS.log.info("Cannot parse server URL: " + req.messageToCreate.getActualServerURL());
+			    sb.append("Cannot parse server URL: " + req.messageToCreate.getActualServerURL() + "\n");
                         }
                         req.message.setIsPublic(false);
                         req.message.addOutputs(new CoinSparkIORange(0, 1)); 

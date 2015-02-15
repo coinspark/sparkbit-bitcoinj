@@ -282,6 +282,14 @@ public class CSMessage {
     private CoinSparkPaymentRef paymentRef = null;
 
     private CSMessageMetadata meta = null;
+    
+    // The actual server URL we will use to connect to delivery servers.
+    // If we converted hostname to IP successfully, this will be the IPv4 address.
+    private String actualServerURL = null; 
+    
+    public String getActualServerURL() {
+	return actualServerURL;
+    }
 
     public String getTxID() {
 	return txID;
@@ -807,7 +815,10 @@ public class CSMessage {
 		Map<String, String> headers = new HashMap<String, String>();
 		headers.put("Content-Type", "application/json");
 
-		CSUtils.CSDownloadedURL downloaded = CSUtils.postURL(meta.getServerURL(), 15, null, json, headers);
+		CSUtils.CSDownloadedURL downloaded = CSUtils.postMessagingURL(meta.getServerURL(), 15, null, json, headers);
+		// Record the urlString we are using for the actual connection
+		actualServerURL = downloaded.urlString;
+		
 		if (downloaded.error != null) {
 		    response.errorMessage = downloaded.error;
 		    response.error = CSUtils.CSServerError.SERVER_CANNOT_CONNECT;

@@ -261,6 +261,11 @@
             <version>2.0.4-DEVELOP</version>
             <type>jar</type>
         </dependency>
+		<dependency>
+			<groupId>commons-validator</groupId>
+			<artifactId>commons-validator</artifactId>
+			<version>1.4.1</version>
+		</dependency>
     </dependencies>
     <version>0.3-CS-0.11.2-MB-ALICE</version>
 </project>

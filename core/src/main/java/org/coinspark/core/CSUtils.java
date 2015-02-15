@@ -34,26 +34,41 @@ import java.net.InetAddress;
 import java.net.InetSocketAddress;
 import java.net.MalformedURLException;
 import java.net.SocketAddress;
+import java.net.URI;
+import java.net.URISyntaxException;
 import java.net.URL;
 import java.net.URLConnection;
 import java.net.UnknownHostException;
 import java.nio.ByteBuffer;
 import java.nio.channels.SocketChannel;
+import java.security.cert.Certificate;
+import java.security.cert.CertificateParsingException;
+import java.security.cert.X509Certificate;
 import java.text.DateFormat;
 import java.text.ParseException;
 import java.text.SimpleDateFormat;
 import java.util.Arrays;
+import java.util.Collections;
 import java.util.Date;
 import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 import java.util.TimeZone;
-import java.util.logging.Level;
+import javax.naming.InvalidNameException;
+import javax.naming.ldap.LdapName;
+import javax.naming.ldap.Rdn;
+import javax.net.ssl.HostnameVerifier;
 import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.SSLPeerUnverifiedException;
+import javax.net.ssl.SSLSession;
+import org.apache.commons.lang3.ArrayUtils;
 import org.coinspark.protocol.CoinSparkMessage;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
-
+import org.apache.commons.validator.routines.InetAddressValidator;
 
 
 public class CSUtils {
@@ -408,6 +423,27 @@ public class CSUtils {
         return hs;
     }
     
+    /**
+     * Return a new copy of the delivery servers, in random order,
+     * with http:// protocol apended if a protocol does not exist.
+     * @param servers Array of server URLs
+     * @return Array of server URLs
+     */
+    public static String[] getRandomizedHTTPDeliveryServers(String[] servers) {
+	int count = servers.length;
+	if (count==0) return new String[0];
+	
+	String[] result = Arrays.copyOf(servers, count);
+	for (int i = 0; i < result.length; i++) {
+	    result[i] = addHttpIfMissing(result[i]);
+	}
+	
+	// Shuffle underlying array in-place
+	Collections.shuffle(Arrays.asList(result));
+	return result;
+    }
+    
+    @Deprecated
     public static void shuffleArray(String [] arr)
     {
         Random rnd = new Random();
@@ -420,6 +456,7 @@ public class CSUtils {
         }
     }
     
+    @Deprecated
     public static String [] getDeliveryServersArray(String [] source)
     {
         shuffleArray(source);
@@ -495,13 +532,22 @@ public class CSUtils {
         reader.read();
         return reader;
     }
-    
-    public static CSDownloadedURL postURL(String URLString,int Timeout,String FileNamePrefix,String Request,Map <String,String> AdditionalHeaders)
+
+    public static CSDownloadedURL postMessagingURL(String URLString,int Timeout,String FileNamePrefix,String Request,Map <String,String> AdditionalHeaders) {
+	return postURL_impl(URLString, Timeout, FileNamePrefix, Request, AdditionalHeaders, true);
+    }
+
+    public static CSDownloadedURL postURL(String URLString,int Timeout,String FileNamePrefix,String Request,Map <String,String> AdditionalHeaders) {
+	return postURL_impl(URLString, Timeout, FileNamePrefix, Request, AdditionalHeaders, false);
+    }
+		
+    public static CSDownloadedURL postURL_impl(String URLString,int Timeout,String FileNamePrefix,String Request,Map <String,String> AdditionalHeaders, boolean convertHostnameToIP)
     {
         CSDownloadedURL reader=new CSUtils().new CSDownloadedURL(URLString,Timeout,FileNamePrefix);
         reader.method="POST";
         reader.postRequest=Request;
         reader.additionalHeaders=AdditionalHeaders;
+	reader.convertHostnameToIP = convertHostnameToIP; // for messaging to save bytes if true
         reader.read();
         return reader;
     }
@@ -585,7 +631,9 @@ public class CSUtils {
         public int responseCode=0;
         public String ResponseMessage="";
         public Map <String,String> additionalHeaders=new HashMap<String, String>();
-        
+        public boolean convertHostnameToIP = false; // if true, will convert hostname to IPv4
+	public String originalHostname; // original hostname, if we converted to IPv4
+	private boolean isAlreadyIPAddress; // true if original hostname was already an IPv4 address
         
         public CSDownloadedURL(String URLString,int Timeout,String FileNamePrefix)
         {
@@ -624,6 +672,39 @@ public class CSUtils {
                 {
                     urlString="http://" + urlString;
                 }
+
+		/*
+		 If required, convert hostname to an IPv4 address
+		 */
+		try {
+		    URI uri = new URI(urlString);
+		    String host = uri.getHost();
+		    if (host!=null) {
+			this.isAlreadyIPAddress = InetAddressValidator.getInstance().isValidInet4Address(host);
+			if (this.isAlreadyIPAddress) {
+			    this.convertHostnameToIP = false;
+			}			
+		    }
+		} catch (URISyntaxException e) {
+		}
+
+		if (this.convertHostnameToIP) {
+		    try {
+			URI uri = new URI(urlString);
+			String host = uri.getHost();
+			this.originalHostname = host; // custom host verifier will check cert name against this
+			InetAddress address = InetAddress.getByName(host);
+			String hostIP = address.getHostAddress();
+			URI newUri = new URI(uri.getScheme(), uri.getUserInfo(), hostIP, uri.getPort(), uri.getPath(), uri.getQuery(), uri.getFragment());
+			this.urlString = newUri.toString();
+		    } catch (URISyntaxException use) {
+			this.convertHostnameToIP = false;
+		    } catch (UnknownHostException uhe) {
+			this.convertHostnameToIP = false;
+		    }
+		}
+		// End: converting hostname to IPv4
+
                 url = new URL(urlString);
             } 
             catch (Exception ex) 
@@ -643,6 +724,89 @@ public class CSUtils {
                 {
 
                     connection = (HttpsURLConnection)url.openConnection();
+		    
+		    /*
+		     If the hostname has been converted to an IP address, set a custom
+		     host verifier, and check that the original hostname matches either
+		     the Common Name (CN) or Subject Alternative Name (SAN) of the cert.
+		     TODO: There is a small risk that the server IP may have changed
+		     at time of message retrieval.  In future we will add an option
+		     so that the message delivery server can indicate whether or not
+		     connecting via an IP address is allowed or not.
+		     */
+		    if (this.convertHostnameToIP) {
+			HostnameVerifier myVerifier = new HostnameVerifier() {
+			    @Override
+			    public boolean verify(String hostname, SSLSession session) {
+//				log.debug(">>>> original host     = " + originalHostname);
+//				log.debug(">>>> connected to host = " + hostname);
+//				log.debug(">>>> SSLSession        = " + session);
+
+				Set<String> namesFound = new HashSet<String>();
+				try {
+				    Certificate[] peerCertificates = session.getPeerCertificates();
+
+				    if (peerCertificates.length > 0 && peerCertificates[0] instanceof X509Certificate) {
+					X509Certificate peerCertificate = (X509Certificate) peerCertificates[0];
+					String cn = peerCertificate.getSubjectX500Principal().getName();
+					// Example value of cn: CN=msg1.coinspark.org,OU=PositiveSSL Multi-Domain,OU=Domain Control Validated
+					// if CN, add to list of valid names, and then check against desired name before we used UP instead.
+//					log.debug(">>>> common name = " + cn);
+					try {
+					    // Creative use of LDAP library... via http://stackoverflow.com/questions/2914521/how-to-extract-cn-from-x509certificate-in-java
+					    LdapName ldapDN = new LdapName(cn);
+					    for (Rdn rdn : ldapDN.getRdns()) {
+//						log.debug("      " + rdn.getType() + " -> " + rdn.getValue());					
+						if (rdn.getType().equals("CN")) {
+						    namesFound.add(rdn.getValue().toString());
+						}
+					    }
+					} catch (InvalidNameException ine) {
+					}
+					//log.debug(">>>> peerCertificate toString() = " + peerCertificate.toString());
+					try {
+					    // From Javadoc: Each entry is a List whose first entry is an Integer (the name type, 0-8) and whose second entry is a String or a byte array (the name, in string or ASN.1 DER encoded form, respectively).
+					    for (List<?> item : peerCertificate.getSubjectAlternativeNames()) {
+						Integer type = (Integer) item.get(0);
+						if (type.intValue() == 2) { // 2 = dNSName, 7 = iPAddress (OCTET STRING)
+						    String dNSName = (String) item.get(1);
+						    namesFound.add(dNSName);
+						}
+					    }
+					    //log.debug(">>>> sans = " + Arrays.toString(sans));
+					} catch (CertificateParsingException e) {
+					    // error, no SAN to add to list of found names
+					}
+				    }
+				} catch (SSLPeerUnverifiedException ex) {
+				    // Error with SSL connection, reject.
+				    ex.printStackTrace();
+				    return false;
+				}
+//				log.debug(">>>> Cert Names Found = " + ArrayUtils.toString(namesFound));
+				return namesFound.contains(originalHostname);
+			    }
+			};
+			connection.setHostnameVerifier(myVerifier);
+		    }
+		    else {
+			// Don't convert hostname to IP address.  If the hostname
+			// is an IP address, do allow the if SSL cert name to differ.
+			// If the hostname is a string, proceed as normal with default behaviour.
+			if (this.isAlreadyIPAddress) {
+			    HostnameVerifier myVerifier = new HostnameVerifier() {
+				@Override
+				public boolean verify(String hostname, SSLSession session) {
+//				    log.debug(">>>> original host     = " + originalHostname);
+//				    log.debug(">>>> connected to host = " + hostname);
+				    return InetAddressValidator.getInstance().isValidInet4Address(hostname);
+				}
+			    };
+			    connection.setHostnameVerifier(myVerifier);
+			}
+		    }
+
+		    
                     connection.setConnectTimeout(timeoutConnect);
                     connection.setReadTimeout(timeout);
 
