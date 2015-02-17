@@ -38,6 +38,6 @@ public enum CSEventType {
     MESSAGE_RETRIEVAL_COMPLETED,                                                // payload: String TxID
     TRANSACTION_PAYMENT_REFERENCE_RECEIVED,	// payload: Map<String TxID, int paymentRef> 
     TRANSACTION_PAYMENT_REFERENCE_INSERTED,	// payload: Map<String TxID, int paymentRef>
-    MESSAGE_UPLOAD_STARTED, // SendRequest hashcode
-    MESSAGE_UPLOAD_ENDED, // SendRequest hashcode
+    MESSAGE_UPLOAD_STARTED, // payload: ImmutablePair< SendRequest hashcode, Message server URL>
+    MESSAGE_UPLOAD_ENDED, // payload: ImmutablePair< SendRequest hashcode, Message server URL>
 }

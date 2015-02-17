@@ -63,6 +63,7 @@ import static com.google.bitcoin.core.Utils.bitcoinValueToFriendlyString;
 import static com.google.bitcoin.core.Utils.bitcoinValueToPlainString;
 import static com.google.common.base.Preconditions.*;
 import com.sun.org.apache.xml.internal.security.utils.Base64;
+import org.apache.commons.lang3.tuple.ImmutablePair;
 import org.coinspark.core.CSExceptions;
 import org.coinspark.core.CSLogger;
 import org.coinspark.core.CSUtils;
@@ -2385,8 +2386,9 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
 // After inputs are signed we can send messahe ot delivery server
         if(sendRequest.messageToCreate != null)
         {
+	    ImmutablePair<Integer, String> payload = new ImmutablePair<Integer, String>(sendRequest.hashCode(), sendRequest.messageToCreate.getServerURL());	    
 	    try {
-		CSEventBus.INSTANCE.postAsyncEvent(CSEventType.MESSAGE_UPLOAD_STARTED, sendRequest.hashCode());
+		CSEventBus.INSTANCE.postAsyncEvent(CSEventType.MESSAGE_UPLOAD_STARTED, payload);
 		if (sendRequest.messageParts != null) {
 		    CS.log.info("Sending message for tx " + sendRequest.tx.getHashAsString() + " to delivery server " + sendRequest.messageToCreate.getServerURL());
 		    sendRequest.messageToCreate.setTxID(sendRequest.tx.getHashAsString());
@@ -2417,7 +2419,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
 		}
 
 	    } finally {
-		CSEventBus.INSTANCE.postAsyncEvent(CSEventType.MESSAGE_UPLOAD_ENDED, sendRequest.hashCode());
+		CSEventBus.INSTANCE.postAsyncEvent(CSEventType.MESSAGE_UPLOAD_ENDED, payload);
 	    }
         }
 /* CSPK-mike END */    
