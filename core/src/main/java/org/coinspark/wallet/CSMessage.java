@@ -290,6 +290,12 @@ public class CSMessage {
     public String getActualServerURL() {
 	return actualServerURL;
     }
+    
+    // Set isRetrieving to true when actually making JSON queries etc.
+    private boolean isRetrieving = false;
+    public boolean getIsRetrieving() {
+	return isRetrieving;
+    }
 
     public String getTxID() {
 	return txID;
@@ -1439,10 +1445,18 @@ public class CSMessage {
 	messageRetrievalState = messageState;
 
 	if (nextRetrievalInterval() == 0) {
+
+	    this.isRetrieving = true;
+	    
+
 	    CSEventBus.INSTANCE.postAsyncEvent(CSEventType.MESSAGE_RETRIEVAL_STARTED, txID);
 	    load();
 	    
+	    
 	    ImmutableTriple<Boolean, CSUtils.CSServerError, String> triplet = retrieve(wallet);
+	    
+	    this.isRetrieving = false;
+	    
 	    this.db.putServerError(txID, triplet.getMiddle());
 	    
 	    updateRequired |= triplet.getLeft();
