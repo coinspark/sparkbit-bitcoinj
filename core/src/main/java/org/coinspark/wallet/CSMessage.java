@@ -41,7 +41,6 @@ import com.j256.ormlite.field.DataType;
 import com.j256.ormlite.field.DatabaseField;
 import com.j256.ormlite.field.ForeignCollectionField;
 import com.j256.ormlite.table.DatabaseTable;
-//import com.sun.org.apache.xerces.internal.impl.dv.util.Base64;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -66,9 +65,9 @@ import org.apache.commons.codec.binary.Base64;
  */
 @DatabaseTable(tableName = "messages")
 public class CSMessage {
-
+    
     private static final org.slf4j.Logger log = LoggerFactory.getLogger(CSMessage.class);
-
+    
     /**
      * Message state.  Instead of an enumerated type, we use int which can be persisted to database.
      */
@@ -825,6 +824,18 @@ public class CSMessage {
 		CSUtils.CSDownloadedURL downloaded = CSUtils.postMessagingURL(meta.getServerURL(), 15, null, json, headers);
 		// Record the urlString we are using for the actual connection
 		actualServerURL = downloaded.urlString;
+		
+		String prefix = "MSG # " + this.hashCode() + " : ";
+		log.debug(prefix + "----------------------BEGIN QUERY------------------------");
+		log.debug(prefix + "JSON Query posted to " + meta.getServerURL() + " / actual " + actualServerURL);
+		log.debug(prefix + "Headers = " + headers);
+		String s1 = json.replaceAll("\\\"content\\\":\\\".*?\\\"", "\\\"content\\\":......");
+		log.debug(prefix + "JSON Request = " + s1);
+		log.debug(prefix + "Response Error Code = " + downloaded.error);
+		log.debug(prefix + "Response Message = " + downloaded.ResponseMessage);
+		String s2 = downloaded.contents.replaceAll("\\\"content\\\":\\\".*?\\\"", "\\\"content\\\":......");
+		log.debug(prefix + "JSON Response = " + s2);
+		log.debug(prefix + "---------------------END QUERY---------------------------");
 		
 		if (downloaded.error != null) {
 		    response.errorMessage = downloaded.error;
