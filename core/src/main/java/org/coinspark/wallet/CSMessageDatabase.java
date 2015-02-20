@@ -50,6 +50,14 @@ public class CSMessageDatabase {
     // Set this to true and all messages will enable testnet=true JSON parameter.
     public static boolean testnet3 = false;
     
+    // Set this to true to be able to set custom error code and message in the message itself.
+    public static boolean debugWithCustomError = false;
+    public static int debugCustomErrorCode = 0;
+    public static String debugCustomErrorMethod = "";
+    public static synchronized void setDebugWithCustomError(boolean b) {
+	debugWithCustomError = b;
+    }
+    
     // Suffix to add to filename
     private static final String TESTNET3_FILENAME_SUFFIX = "-testnet3";
     

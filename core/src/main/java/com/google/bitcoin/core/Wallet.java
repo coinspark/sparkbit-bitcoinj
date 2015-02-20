@@ -4949,7 +4949,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
                     if(req.createNonce.error != CSUtils.CSServerError.NOERROR)
                     {
                         CS.log.info("Server " + serverURL + ": " + req.createNonce.error.getCode() + " - " + req.createNonce.errorMessage);
-			sb.append("Server " + serverURL + ": " + req.createNonce.error.getCode() + " - " + req.createNonce.errorMessage + "\n");
+			sb.append(serverURL + ": Error " + req.createNonce.error.getCode() + " - " + req.createNonce.errorMessage + "\n");
                     }
                     else
                     {

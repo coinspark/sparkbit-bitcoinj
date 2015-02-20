@@ -831,8 +831,8 @@ public class CSMessage {
 		log.debug(prefix + "Headers = " + headers);
 		String s1 = json.replaceAll("\\\"content\\\":\\\".*?\\\"", "\\\"content\\\":......");
 		log.debug(prefix + "JSON Request = " + s1);
-		log.debug(prefix + "Response Error Code = " + downloaded.error);
-		log.debug(prefix + "Response Message = " + downloaded.ResponseMessage);
+		log.debug(prefix + "HTTP Response Error = " + downloaded.error);
+		log.debug(prefix + "HTTP Response Message = " + downloaded.ResponseMessage);
 		String s2 = downloaded.contents.replaceAll("\\\"content\\\":\\\".*?\\\"", "\\\"content\\\":......");
 		log.debug(prefix + "JSON Response = " + s2);
 		log.debug(prefix + "---------------------END QUERY---------------------------");
@@ -854,6 +854,16 @@ public class CSMessage {
 		    jobject = jelement.getAsJsonObject();
 		}
 
+			
+		// !!!
+		if (CSMessageDatabase.debugWithCustomError && request.method.equals(CSMessageDatabase.debugCustomErrorMethod)) {
+		    response.errorMessage = CSUtils.getHumanReadableServerError(CSMessageDatabase.debugCustomErrorCode);
+		    response.error = CSUtils.CSServerError.fromCode(CSMessageDatabase.debugCustomErrorCode);
+		    log.debug(prefix + "DEBUG CUSTOM ERROR SET: " + response.errorMessage + " , code=" + response.error);
+		}
+		// !!!
+		
+		
 		if (response.error == CSUtils.CSServerError.NOERROR) {
 		    if (jobject != null) {
 			if ((jobject.get("id") == null) || jobject.get("id").getAsInt() != request.id) {
