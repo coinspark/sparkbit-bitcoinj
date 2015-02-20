@@ -41,7 +41,7 @@ import com.j256.ormlite.field.DataType;
 import com.j256.ormlite.field.DatabaseField;
 import com.j256.ormlite.field.ForeignCollectionField;
 import com.j256.ormlite.table.DatabaseTable;
-import com.sun.org.apache.xerces.internal.impl.dv.util.Base64;
+//import com.sun.org.apache.xerces.internal.impl.dv.util.Base64;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Collections;
@@ -59,6 +59,7 @@ import org.h2.mvstore.MVMap;
 import org.slf4j.LoggerFactory;
 import org.spongycastle.crypto.params.KeyParameter;
 import org.apache.commons.lang3.tuple.*;
+import org.apache.commons.codec.binary.Base64;
 
 /**
  * CSMessage is persisted via ORMLite to a database.
@@ -964,7 +965,7 @@ public class CSMessage {
 	sigScript[encodedSignature.length + 1] = (byte) key.getPubKey().length;
 	System.arraycopy(key.getPubKey(), 0, sigScript, encodedSignature.length + 2, key.getPubKey().length);
 
-	return Base64.encode(sigScript);
+	return Base64.encodeBase64String(sigScript);
     }
 
     private class JRequestPreCreateMessagePart {
@@ -1058,7 +1059,7 @@ public class CSMessage {
 	JRequestCreateMessagePart(String MimeType, String FileName, byte[] Content) {
 	    mimetype = MimeType;
 	    filename = FileName;
-	    content = Base64.encode(Content);
+	    content = Base64.encodeBase64String(Content);
 	}
     }
 
@@ -1278,7 +1279,10 @@ public class CSMessage {
 			    }
 			}
 			if (jentry.get("content") != null) {
-			    onePart.content = Base64.decode(jentry.get("content").getAsString());
+			    String jsonData = jentry.get("content").getAsString();
+			    if (jsonData!=null) {
+				onePart.content = Base64.decodeBase64(jsonData);
+			    }
 			} else {
 			    Nonce.errorMessage = "content not found in one of message parts";
 			    Nonce.error = CSUtils.CSServerError.RESPONSE_INVALID;
@@ -1292,8 +1296,8 @@ public class CSMessage {
 	}
 
 	if (Nonce.error == CSUtils.CSServerError.NOERROR) {
-	    byte[] receivedHash = CoinSparkMessage.calcMessageHash(Base64.decode(meta.getSalt()), receivedParts);
-	    if (!Arrays.equals(Arrays.copyOf(this.getHashBytes(), meta.getHashLen()), Arrays.copyOf(receivedHash, meta.getHashLen()))) {
+	    byte[] receivedHash = CoinSparkMessage.calcMessageHash(Base64.decodeBase64(meta.getSalt()), receivedParts);
+	    if (receivedHash==null || !Arrays.equals(Arrays.copyOf(this.getHashBytes(), meta.getHashLen()), Arrays.copyOf(receivedHash, meta.getHashLen()))) {
 		Nonce.errorMessage = "message hash doesn't match encoded in metadata";
 		Nonce.error = CSUtils.CSServerError.RESPONSE_HASH_MISMATCH;
 	    }

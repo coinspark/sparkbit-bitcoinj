@@ -62,7 +62,7 @@ import java.util.concurrent.locks.ReentrantLock;
 import static com.google.bitcoin.core.Utils.bitcoinValueToFriendlyString;
 import static com.google.bitcoin.core.Utils.bitcoinValueToPlainString;
 import static com.google.common.base.Preconditions.*;
-import com.sun.org.apache.xml.internal.security.utils.Base64;
+//import com.sun.org.apache.xml.internal.security.utils.Base64;
 import org.apache.commons.lang3.tuple.ImmutablePair;
 import org.coinspark.core.CSExceptions;
 import org.coinspark.core.CSLogger;
@@ -88,6 +88,7 @@ import org.coinspark.wallet.CSNonce;
 import org.coinspark.wallet.CSMessagePart;
 
 import org.h2.mvstore.MVMap;
+import org.apache.commons.codec.binary.Base64;
 
 // To do list:
 //
@@ -4901,7 +4902,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
             messageParams.sender=sender;
             messageParams.keepseconds=req.KeepSeconds;
             messageParams.recipients=new String [] {recipient};
-            messageParams.salt=Base64.encode(saltBytes);
+            messageParams.salt=Base64.encodeBase64String(saltBytes);
                     
             req.messageToCreate.setAesKey(req.aesKey);
             req.messageToCreate.setMessageParams(messageParams);
