@@ -197,13 +197,19 @@ public class CSMessageDatabase {
     
     public Integer getServerErrorCode(String txid) {
 	if (errorMap==null || txid==null) return null;
+	if (errorMap.isClosed()) return null;
 	Integer result = errorMap.get(txid);
 	return result;
     }
     
     public void putServerError(String txid, CSUtils.CSServerError errorCode) {
-	errorMap.put(txid, errorCode.getCode());
-	kvStore.commit();
+	if (errorMap==null || txid==null) return;
+	if (errorMap.isClosed()) return;
+	if (kvStore.isClosed()) return;
+	//synchronized (errorMap) {
+	    errorMap.put(txid, errorCode.getCode());
+	    kvStore.commit();
+	//}
     }
 
     
