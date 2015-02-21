@@ -1857,7 +1857,7 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
         private CoinSparkPaymentRef paymentRef=null;
         private CoinSparkMessagePart[] messageParts=null;
         private String[] deliveryServers=null;
-        private int KeepSeconds=86400;
+        private int KeepSeconds=604800; // By default servers keep message for one week so try that. TODO: Use constant
         private CSMessage messageToCreate=null;
         private CSNonce createNonce=null;
         private CoinSparkMessage message=null;
