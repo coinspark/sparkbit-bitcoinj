@@ -28,6 +28,7 @@ import com.google.bitcoin.core.AddressFormatException;
 import com.google.bitcoin.core.ECKey;
 import com.google.bitcoin.core.Sha256Hash;
 import com.google.bitcoin.core.Transaction;
+import com.google.bitcoin.core.Utils;
 import com.google.bitcoin.core.Wallet;
 import com.google.bitcoin.crypto.TransactionSignature;
 import com.google.gson.Gson;
@@ -959,7 +960,8 @@ public class CSMessage {
 	}
     }
 
-    private String getSignature(Wallet wallet, String address, CSNonce Nonce) {
+    @Deprecated
+    private String getSignature_old(Wallet wallet, String address, CSNonce Nonce) {
 	Address pubKeyHashAddress;
 	try {
 	    pubKeyHashAddress = new Address(wallet.getNetworkParameters(), address);
@@ -987,6 +989,56 @@ public class CSMessage {
 	System.arraycopy(key.getPubKey(), 0, sigScript, encodedSignature.length + 2, key.getPubKey().length);
 
 	return Base64.encodeBase64String(sigScript);
+    }
+    
+    /**
+     * Return pub key bytes as hexadecimal string
+     * @param wallet
+     * @param address
+     * @param Nonce
+     * @return hexadecimal string
+     */
+    private String getPubKey(Wallet wallet, String address, CSNonce Nonce) {
+	Address pubKeyHashAddress;
+	try {
+	    pubKeyHashAddress = new Address(wallet.getNetworkParameters(), address);
+	} catch (AddressFormatException ex) {
+	    Nonce.error = CSUtils.CSServerError.CANNOT_SIGN;
+	    return null;
+	}
+
+	ECKey key = wallet.findKeyFromPubHash(pubKeyHashAddress.getHash160());
+	if (key == null) {
+	    Nonce.error = CSUtils.CSServerError.CANNOT_SIGN;
+	    return null;
+	}
+    
+	byte[] bytes = key.getPubKey();
+	String s = Utils.bytesToHexString(bytes);
+	return s;
+    }
+    
+    
+    private String getSignature(Wallet wallet, String address, CSNonce Nonce) {
+	Address pubKeyHashAddress;
+	try {
+	    pubKeyHashAddress = new Address(wallet.getNetworkParameters(), address);
+	} catch (AddressFormatException ex) {
+	    Nonce.error = CSUtils.CSServerError.CANNOT_SIGN;
+	    return null;
+	}
+
+	ECKey key = wallet.findKeyFromPubHash(pubKeyHashAddress.getHash160());
+	if (key == null) {
+	    Nonce.error = CSUtils.CSServerError.CANNOT_SIGN;
+	    return null;
+	}
+
+	Sha256Hash hashForSignature = Sha256Hash.create(Nonce.nonce.getBytes());
+	TransactionSignature signature = new TransactionSignature(key.sign(hashForSignature, aesKey), Transaction.SigHash.ALL, true);
+
+	byte[] encodedSignature = signature.encodeToBitcoin();
+	return Base64.encodeBase64String(encodedSignature);
     }
 
     private class JRequestPreCreateMessagePart {
@@ -1091,6 +1143,7 @@ public class CSMessage {
 	public String sender;
 	public String nonce;
 	public String signature;
+	public String pubkey;
 	public String txid;
 	public boolean ispublic;
 	public String[] recipients;
@@ -1113,6 +1166,7 @@ public class CSMessage {
 	params.txid = txID;
 	params.nonce = Nonce.nonce;
 	params.signature = getSignature(wallet, meta.sender, Nonce);
+	params.pubkey = getPubKey(wallet, meta.sender, Nonce);
 	params.sender = meta.sender;
 	params.ispublic = meta.isPublic;
 	params.salt = meta.salt;
@@ -1229,6 +1283,7 @@ public class CSMessage {
 	public String recipient;
 	public String nonce;
 	public String signature;
+	public String pubkey;
     }
 
     /**
@@ -1249,6 +1304,7 @@ public class CSMessage {
 	params.recipient = acceptedAddress;
 	params.nonce = Nonce.nonce;
 	params.signature = getSignature(wallet, acceptedAddress, Nonce);
+	params.pubkey = getPubKey(wallet, acceptedAddress, Nonce);
 
 	if (Nonce.error != CSUtils.CSServerError.NOERROR) {
 	    return new ImmutableTriple<Boolean, CSUtils.CSServerError, String>(false, Nonce.error, "Error retrieving message");
