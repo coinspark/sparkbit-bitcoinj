@@ -124,12 +124,13 @@ public class CSUtils {
         RECIPIENT_IP_NOT_ACCEPTED_ON_CREATE(        -11023),
         RECIPIENT_IP_IS_SUSPENDED_ON_CREATE(        -11024),    
         DURATION_NOT_ACCEPTABLE(                    -11030),    
-        SEED_NOT_ACCEPTABLE(                        -11040),    
+        SALT_NOT_ACCEPTABLE(                        -11040),    
         TOO_MANY_MESSAGE_PARTS(                     -11050),
         TOTAL_MESSAGE_TOO_LARGE(                    -11051),
         MIME_TYPE_NOT_ACCEPTABLE(                   -11052),
         FILE_NAME_NOT_ACCEPTABLE(                   -11053),
         CONTENT_TOO_LARGE(                          -11054),   
+        CONTENT_MISMATCH(			    -11055),   
         TXID_INVALID(                               -11080),    
         TX_MESSAGE_UNKNOWN(                         -12000),
         TX_MESSAGE_PENDING(                         -12001),
@@ -142,7 +143,9 @@ public class CSUtils {
 
         NONCE_NOT_FOUND(                            -13000),
 
-        SIGNATURE_INCORRECT(                        -13010);
+        SIGNATURE_INCORRECT(                        -13010),
+	PUBKEY_INCORRECT(			    -13011),
+	PUBKEY_ADDRESS_MISMATCH(		    -13012);
         
         private int code;
 
@@ -247,8 +250,8 @@ public class CSUtils {
 		return "Recipient IP is suspended";
 	    case DURATION_NOT_ACCEPTABLE:
 		return "Duration not accepted";
-	    case SEED_NOT_ACCEPTABLE:
-		return "Seed not accepted";
+	    case SALT_NOT_ACCEPTABLE:
+		return "Salt not accepted";
 	    case TOO_MANY_MESSAGE_PARTS:
 		return "Too many message parts";
 	    case TOTAL_MESSAGE_TOO_LARGE:
@@ -259,6 +262,8 @@ public class CSUtils {
 		return "File name not accpeted";
 	    case CONTENT_TOO_LARGE:
 		return "Content is too large";
+	    case CONTENT_MISMATCH:
+		return "Content does not match mimetype";
 	    case TXID_INVALID:
 		return "Transaction ID is invalid";
 	    case TX_MESSAGE_UNKNOWN:
@@ -281,6 +286,10 @@ public class CSUtils {
 		return "Internal error (nonce not found)";
 	    case SIGNATURE_INCORRECT:
 		return "Signature is not correct";
+	    case PUBKEY_INCORRECT:
+		return "Pubkey does not contain valid bitcoin public key in hexadecimal";
+	    case PUBKEY_ADDRESS_MISMATCH:
+		return "Pubkey does not match sender address";
 	    default:
 	}
 	return "Unknown error";
