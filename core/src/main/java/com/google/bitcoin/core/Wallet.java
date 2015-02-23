@@ -2394,6 +2394,9 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
 		    CS.log.info("Sending message for tx " + sendRequest.tx.getHashAsString() + " to delivery server " + sendRequest.messageToCreate.getServerURL());
 		    sendRequest.messageToCreate.setTxID(sendRequest.tx.getHashAsString());
 
+		    // Enable sending from wallets with password
+		    sendRequest.messageToCreate.setAesKey(sendRequest.aesKey);
+		    
 		    try {
 			if (!sendRequest.messageToCreate.create(this, sendRequest.messageParts, sendRequest.createNonce)) {
 			    throw new CSExceptions.CannotEncode("Cannot send message to delivery server");
