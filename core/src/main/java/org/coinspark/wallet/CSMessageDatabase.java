@@ -154,7 +154,6 @@ public class CSMessageDatabase {
 	try {
 	    connectionSource = new JdbcConnectionSource(databaseUrl);
 	    messageDao = DaoManager.createDao(connectionSource, CSMessage.class);
-	    messageDao.setObjectCache(true); // Important to cache so we use same object and can set properties such as aeskey for retrieval
 	    TableUtils.createTableIfNotExists(connectionSource, CSMessage.class);
 
 	    messagePartDao = DaoManager.createDao(connectionSource, CSMessagePart.class);
