@@ -1239,9 +1239,9 @@ public class CSMessage {
 	    nonce.error = response.error;
 	    nonce.errorMessage = response.errorMessage;
 	    switch (nonce.error) {
-		case RECIPIENT_IP_IS_SUSPENDED:
-		    nonce.suspended = true;
-		    break;
+//		case RECIPIENT_IP_IS_SUSPENDED:
+//		    nonce.suspended = true;
+//		    break;
 		case RECIPIENT_IS_SUSPENDED:
 		    nonce.suspended = true;
 		    nonce.mayBeOtherAddressIsBetter = true;
@@ -1406,11 +1406,11 @@ public class CSMessage {
 	    case NOERROR:
 		messageRetrievalState = CSMessageState.VALID;
 		break;
-	    case RECIPIENT_IP_IS_SUSPENDED:
+//	    case RECIPIENT_IP_IS_SUSPENDED:
 	    case RECIPIENT_IS_SUSPENDED:
 		messageRetrievalState = CSMessageState.ADDRESSES_SUSPENDED;
 		break;
-	    case RECIPIENT_IP_NOT_ACCEPTED:
+//	    case RECIPIENT_IP_NOT_ACCEPTED:
 	    case RECIPIENT_NOT_ACCEPTED:
 		messageRetrievalState = CSMessageState.ADDRESSES_NOT_ACCEPTED;
 		break;

@@ -114,15 +114,15 @@ public class CSUtils {
         SENDER_NOT_ACCEPTED(                        -11000),
         SENDER_IS_SUSPENDED(                        -11001),
         SENDER_NETWORK_NOT_ACCEPTABLE(              -11002),
-        SENDER_IP_NOT_ACCEPTED(                     -11003),
-        SENDER_IP_IS_SUSPENDED(                     -11004),    
+//        SENDER_IP_NOT_ACCEPTED(                     -11003),
+//        SENDER_IP_IS_SUSPENDED(                     -11004),    
         NO_PUBLIC_MESSAGES(                         -11010),
         ONLY_PUBLIC_MESSAGES(                       -11011),    
         TOO_MANY_RECIPIENTS(                        -11020),
         RECIPIENT_NOT_ACCEPTED_ON_CREATE(           -11021),
         RECIPIENT_IS_SUSPENDED_ON_CREATE(           -11022),
-        RECIPIENT_IP_NOT_ACCEPTED_ON_CREATE(        -11023),
-        RECIPIENT_IP_IS_SUSPENDED_ON_CREATE(        -11024),    
+//        RECIPIENT_IP_NOT_ACCEPTED_ON_CREATE(        -11023),
+//        RECIPIENT_IP_IS_SUSPENDED_ON_CREATE(        -11024),    
         DURATION_NOT_ACCEPTABLE(                    -11030),    
         SALT_NOT_ACCEPTABLE(                        -11040),    
         TOO_MANY_MESSAGE_PARTS(                     -11050),
@@ -137,9 +137,9 @@ public class CSUtils {
         TX_MESSAGE_EXPIRED(                         -12002),    
         RECIPIENT_NOT_ACCEPTED(                     -12010),
         RECIPIENT_IS_SUSPENDED(                     -12011),
-        RECIPIENT_NETWORK_NOT_ACCEPTABLE(           -12012),
-        RECIPIENT_IP_NOT_ACCEPTED(                  -12013),
-        RECIPIENT_IP_IS_SUSPENDED(                  -12014),
+//        RECIPIENT_NETWORK_NOT_ACCEPTABLE(           -12012),
+//        RECIPIENT_IP_NOT_ACCEPTED(                  -12013),
+//        RECIPIENT_IP_IS_SUSPENDED(                  -12014),
 
         NONCE_NOT_FOUND(                            -13000),
 
@@ -230,10 +230,10 @@ public class CSUtils {
 		return "Sender is suspended";
 	    case SENDER_NETWORK_NOT_ACCEPTABLE:
 		return "Sender network not accepted";
-	    case SENDER_IP_NOT_ACCEPTED:
-		return "Sender IP not accepted";
-	    case SENDER_IP_IS_SUSPENDED:
-		return "Sender IP is suspended";
+//	    case SENDER_IP_NOT_ACCEPTED:
+//		return "Sender IP not accepted";
+//	    case SENDER_IP_IS_SUSPENDED:
+//		return "Sender IP is suspended";
 	    case NO_PUBLIC_MESSAGES:
 		return "Server does not deliver public messages";
 	    case ONLY_PUBLIC_MESSAGES:
@@ -244,10 +244,10 @@ public class CSUtils {
 		return "Recipient not accepted";
 	    case RECIPIENT_IS_SUSPENDED_ON_CREATE:
 		return "Recipient is suspended";
-	    case RECIPIENT_IP_NOT_ACCEPTED_ON_CREATE:
-		return "Recipient IP is not accepted";
-	    case RECIPIENT_IP_IS_SUSPENDED_ON_CREATE:
-		return "Recipient IP is suspended";
+//	    case RECIPIENT_IP_NOT_ACCEPTED_ON_CREATE:
+//		return "Recipient IP is not accepted";
+//	    case RECIPIENT_IP_IS_SUSPENDED_ON_CREATE:
+//		return "Recipient IP is suspended";
 	    case DURATION_NOT_ACCEPTABLE:
 		return "Duration not accepted";
 	    case SALT_NOT_ACCEPTABLE:
@@ -276,12 +276,12 @@ public class CSUtils {
 		return "Recipient not accepted";
 	    case RECIPIENT_IS_SUSPENDED:
 		return "Recipient has been suspended";
-	    case RECIPIENT_NETWORK_NOT_ACCEPTABLE:
-		return "Recipient network not accepted";
-	    case RECIPIENT_IP_NOT_ACCEPTED:
-		return "Recipient's IP address is not accepted";
-	    case RECIPIENT_IP_IS_SUSPENDED:
-		return "Recipient's IP address has been suspended";
+//	    case RECIPIENT_NETWORK_NOT_ACCEPTABLE:
+//		return "Recipient network not accepted";
+//	    case RECIPIENT_IP_NOT_ACCEPTED:
+//		return "Recipient's IP address is not accepted";
+//	    case RECIPIENT_IP_IS_SUSPENDED:
+//		return "Recipient's IP address has been suspended";
 	    case NONCE_NOT_FOUND:
 		return "Internal error (nonce not found)";
 	    case SIGNATURE_INCORRECT:
