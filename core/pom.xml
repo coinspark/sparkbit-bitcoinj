@@ -163,10 +163,10 @@
                                         <urn>net.jcip:jcip-annotations:1.0:jar:null:compile:afba4942caaeaf46aab0b976afd57cc7c181467e</urn>
                                         <urn>org.slf4j:slf4j-api:1.7.5:jar:null:compile:6b262da268f8ad9eff941b25503a9198f0a0ac93</urn>
                                         <urn>org.slf4j:slf4j-jdk14:1.7.5:jar:null:runtime:33cf4abac351aa45dd130d31a1e7e33fbbba4762</urn>
-										<!--
-										<urn>org.coinspark.library:coinspark-library:2.0.3:jar:null:compile:55f5647e6b17a58d3f50a44c6c03c251f7775164</urn>
--->
-                                        <!-- A check for the rules themselves -->
+										
+										<urn>org.coinspark.library:coinspark-library:2.1:jar:null:compile:a5361b7b731bca19a55fed9e9aaa23f565a5ee1b</urn>
+										
+										<!-- A check for the rules themselves -->
                                         <urn>uk.co.froot.maven.enforcer:digest-enforcer-rules:0.0.1:jar:null:runtime:16a9e04f3fe4bb143c42782d07d5faf65b32106f</urn>
                                     </urns>
                                 </digestRule>
@@ -258,7 +258,7 @@
         <dependency>
             <groupId>org.coinspark.library</groupId>
             <artifactId>coinspark-library</artifactId>
-            <version>2.0.4-DEVELOP</version>
+            <version>2.1</version>
             <type>jar</type>
         </dependency>
 		<dependency>
