@@ -30,6 +30,7 @@ import com.google.bitcoin.core.Sha256Hash;
 import com.google.bitcoin.core.Transaction;
 import com.google.bitcoin.core.Utils;
 import com.google.bitcoin.core.Wallet;
+import com.google.bitcoin.crypto.KeyCrypterException;
 import com.google.bitcoin.crypto.TransactionSignature;
 import com.google.gson.Gson;
 import com.google.gson.JsonArray;
@@ -278,7 +279,7 @@ public class CSMessage {
 
     private boolean corrupted = false;
 
-    private KeyParameter aesKey;
+    private KeyParameter aesKey = null;
 
     private CoinSparkPaymentRef paymentRef = null;
 
@@ -372,6 +373,10 @@ public class CSMessage {
 	}
     }
 
+    public boolean hasAesKey() {
+	return (aesKey != null);
+    }
+    
     public void setAesKey(KeyParameter AesKey) {
 	aesKey = AesKey;
     }
@@ -1526,22 +1531,18 @@ public class CSMessage {
 	messageRetrievalState = messageState;
 
 	if (nextRetrievalInterval() == 0) {
-
-	    this.isRetrieving = true;
-	    
-
-	    CSEventBus.INSTANCE.postAsyncEvent(CSEventType.MESSAGE_RETRIEVAL_STARTED, txID);
-	    load();
-	    
-	    
-	    ImmutableTriple<Boolean, CSUtils.CSServerError, String> triplet = retrieve(wallet);
-	    
-	    this.isRetrieving = false;
-	    
-	    this.db.putServerError(txID, triplet.getMiddle());
-	    
-	    updateRequired |= triplet.getLeft();
-	    //updateRequired |= retrieve(wallet);
+	    try {
+		this.isRetrieving = true;
+		CSEventBus.INSTANCE.postAsyncEvent(CSEventType.MESSAGE_RETRIEVAL_STARTED, txID);
+		load();
+		ImmutableTriple<Boolean, CSUtils.CSServerError, String> triplet = retrieve(wallet);
+		this.isRetrieving = false;
+		this.db.putServerError(txID, triplet.getMiddle());
+		updateRequired |= triplet.getLeft(); // replaced --> updateRequired |= retrieve(wallet);
+	    } catch (KeyCrypterException e) {
+		messageRetrievalState = CSMessageState.ENCRYPTED_KEY;
+		this.isRetrieving = false;
+	    }
 	}
 
 	updateRequired |= (messageState != messageRetrievalState);
