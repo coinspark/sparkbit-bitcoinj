@@ -1550,6 +1550,12 @@ public class CSMessage {
 	if (updateRequired) {
 	    setState(messageRetrievalState);
 	}
+	
+	// If set, clear the AESKey when done
+	if (messageRetrievalState == CSMessageState.VALID) {
+	    setAesKey(null);
+	}
+
 
 	return updateRequired;
     }
