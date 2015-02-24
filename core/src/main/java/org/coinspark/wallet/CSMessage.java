@@ -323,6 +323,10 @@ public class CSMessage {
 	return this.corrupted;
     }
 
+    public ForeignCollection<CSMessagePart> getMessagePartsForeignCollection() {
+	return this.messageParts;
+    }
+    
     public List<CSMessagePart> getMessageParts() {
 	if (this.messageParts != null) {
 	    return new ArrayList(this.messageParts);
