@@ -50,6 +50,7 @@ import java.util.Date;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.List;
+import java.util.concurrent.ConcurrentHashMap;
 import org.apache.commons.beanutils.BeanUtils;
 import org.coinspark.core.CSExceptions;
 import org.coinspark.core.CSUtils;
@@ -69,6 +70,13 @@ import org.apache.commons.codec.binary.Base64;
 public class CSMessage {
     
     private static final org.slf4j.Logger log = LoggerFactory.getLogger(CSMessage.class);
+    
+    // Store password here when trying to retrieve, Txid->Password
+    // TODO: Use expiring hashmap in future
+    private static ConcurrentHashMap<String, KeyParameter> txidWalletPasswordMap = new ConcurrentHashMap<String, KeyParameter>();
+    public static void addTxidWalletPassword(String txid, KeyParameter aesKey) {
+	txidWalletPasswordMap.put(txid, aesKey);
+    }
     
     /**
      * Message state.  Instead of an enumerated type, we use int which can be persisted to database.
@@ -377,8 +385,8 @@ public class CSMessage {
 	}
     }
 
-    public boolean hasAesKey() {
-	return (aesKey != null);
+    public boolean hasAesKey(String txid) {
+	return (txidWalletPasswordMap.get(txid) != null);
     }
     
     public void setAesKey(KeyParameter AesKey) {
@@ -1534,6 +1542,10 @@ public class CSMessage {
 
 	messageRetrievalState = messageState;
 
+	// aeskey must be set, if required, before nextRetrievalInterval() is invoke
+	// In future, perhaps use expiring map, by time or by count of usage
+	setAesKey(txidWalletPasswordMap.get(txID));
+
 	if (nextRetrievalInterval() == 0) {
 	    try {
 		this.isRetrieving = true;
@@ -1558,6 +1570,7 @@ public class CSMessage {
 	// If set, clear the AESKey when done
 	if (messageRetrievalState == CSMessageState.VALID) {
 	    setAesKey(null);
+	    txidWalletPasswordMap.remove(txID);
 	}
 
 
