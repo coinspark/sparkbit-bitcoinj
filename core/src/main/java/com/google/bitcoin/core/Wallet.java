@@ -5850,6 +5850,17 @@ public class Wallet implements Serializable, BlockChainListener, PeerFilterProvi
             return map;
         }
 
+	/**
+	 * Get the number of UTXO
+	 * @return 
+	 */
+	public int getNumberUTXO() {
+	    lock.lock();
+	    int n = this.calculateAllTxOuts().size();
+	    lock.unlock();
+	    return n;
+	}
+	
         protected LinkedList<TransactionOutput> calculateAllTxOuts()
         {
             LinkedList<TransactionOutput> candidates = Lists.newLinkedList();
